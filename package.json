@@ -1,17 +1,46 @@
 {
   "name": "gemini-local",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "A robust local HTTP bridge for Google's Gemini CLI. Features enhanced multi-modal capabilities (stitching), automatic hallucination fixes, and a production-ready Next.js chat UI.",
   "private": true,
+  "license": "MIT",
+  "author": {
+    "name": "Geoff Simons",
+    "url": "https://github.com/geoffsimons"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geoffsimons/gemini-local.git"
+  },
+  "bugs": {
+    "url": "https://github.com/geoffsimons/gemini-local/issues"
+  },
+  "keywords": [
+    "gemini",
+    "ai",
+    "cli",
+    "wrapper",
+    "api",
+    "nextjs",
+    "react",
+    "local-llm",
+    "google-cloud"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "next lint"
   },
   "dependencies": {
+    "@google/gemini-cli-core": "^0.28.2",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.564.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "sharp": "^0.34.5",
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -22,5 +51,8 @@
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18.17.0"
   }
 }

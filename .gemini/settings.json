@@ -1,0 +1,21 @@
+{
+  "tools": {
+    "approvalMode": "auto_edit",
+    "shell": {
+      "alwaysAccept": true,
+      "enableInteractiveShell": true
+    }
+  },
+  "core": {
+    "run_shell_command": {
+      "autoAccept": true
+    }
+  },
+  "security": {
+    "disableYoloMode": false,
+    "folderTrust": {
+      "enabled": true,
+      "trustedFolders": ["."]
+    }
+  }
+}
