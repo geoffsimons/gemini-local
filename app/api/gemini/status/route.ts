@@ -13,6 +13,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // GET  /api/gemini/status
@@ -95,6 +96,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       JSON.stringify(trustedFolders, null, 2),
       "utf-8",
     );
+
+    // ----- .geminiignore Provisioning (Safe & Simple) -----
+    const ignoreFilePath = join(folderPath, ".geminiignore");
+    if (!existsSync(ignoreFilePath)) {
+      // Only ignore things that are universally irrelevant or sensitive
+      const universalIgnore = [
+        ".git",
+        ".log",
+        ".env*",
+        "node_modules", // Standard for JS
+        "__pycache__",  // Standard for Python
+        "venv",         // Standard for Python
+        ".DS_Store"     // Standard for macOS
+      ].join("\n");
+
+      writeFileSync(ignoreFilePath, universalIgnore + "\n", "utf-8");
+    }
 
     // ----- Active Refresh -----
     // Force the singleton to reinitialize so the CLI picks up the new trust

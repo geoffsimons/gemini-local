@@ -86,6 +86,7 @@ export async function getGeminiClient(
 ): Promise<GeminiClient> {
   if (forceReload) {
     globalThis.geminiClient = undefined;
+    globalThis.geminiConfig = undefined;
     globalThis.geminiInitLock = undefined;
   }
 
