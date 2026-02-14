@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
-import { removeTrustedFolder } from "@/lib/config";
+import { removeTrustedFolder } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import path from "path";
 
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     // Step 1: Remove from disk first — this must persist even if the memory
     // purge below fails (atomic constraint).
-    removeTrustedFolder(resolvedPath);
+    await removeTrustedFolder(resolvedPath);
 
     // Step 2: Purge from in-memory registry (best-effort after disk write).
     try {
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       logger.warn('Memory purge failed after disk removal', { folder: resolvedPath, error: detail });
     }
 
-    logger.info(`[Hub/Registry] Unregistered and purged: ${resolvedPath}`);
+    logger.info(`Unregistered and purged: ${resolvedPath}`);
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

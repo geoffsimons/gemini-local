@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
+import { addTrustedFolder } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import path from "path";
 
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
 
     const resolvedPath = path.resolve(folderPath);
     logger.info('Start (warm-up) requested', { folder: resolvedPath, sessionId });
+
+    // Auto-Trust Policy: ensure the folder is in the trusted list before initialising.
+    await addTrustedFolder(resolvedPath);
 
     // Ensure the session entry exists before initialising
     await registry.getSession(resolvedPath);
