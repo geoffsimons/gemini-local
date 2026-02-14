@@ -7,11 +7,11 @@ const log = createLogger('Hub/Folders');
 
 // ---------------------------------------------------------------------------
 // Trusted Folders — persisted at ~/.gemini/trustedFolders.json
+//
+// On-disk format:  { [absolutePath: string]: "TRUST_FOLDER" }
 // ---------------------------------------------------------------------------
 
-interface TrustedFoldersFile {
-  folders: string[];
-}
+type TrustedFoldersMap = Record<string, "TRUST_FOLDER">;
 
 function getTrustedFoldersPath(): string {
   return join(homedir(), ".gemini", "trustedFolders.json");
@@ -24,6 +24,41 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Serialize and write the map back to disk with 2-space indent + trailing newline. */
+async function writeTrustedMap(filePath: string, map: TrustedFoldersMap): Promise<void> {
+  await writeFile(filePath, JSON.stringify(map, null, 2) + "\n", "utf-8");
+}
+
+/**
+ * Reads the trusted-folders map from disk.
+ *
+ * If the file contains the legacy array format (`{ folders: string[] }`),
+ * it is automatically converted to the object-map format and written back.
+ */
+async function readTrustedMap(filePath: string): Promise<TrustedFoldersMap> {
+  const raw = await readFile(filePath, "utf-8");
+  const parsed = JSON.parse(raw);
+
+  // --- Self-healing: migrate legacy array format --------------------------
+  if (parsed && Array.isArray(parsed.folders)) {
+    log.warn('[Hub/Folders] Detected legacy array format in trustedFolders.json. Converting to object map.');
+    const migrated: TrustedFoldersMap = {};
+    for (const folder of parsed.folders as string[]) {
+      migrated[folder] = "TRUST_FOLDER";
+    }
+    await writeTrustedMap(filePath, migrated);
+    return migrated;
+  }
+
+  // Normal path — already an object map
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return parsed as TrustedFoldersMap;
+  }
+
+  log.warn('trustedFolders.json is malformed — returning empty map', { path: filePath });
+  return {};
 }
 
 /**
@@ -39,15 +74,8 @@ export async function getTrustedFolders(): Promise<string[]> {
   }
 
   try {
-    const raw = await readFile(filePath, "utf-8");
-    const parsed: TrustedFoldersFile = JSON.parse(raw);
-
-    if (!Array.isArray(parsed.folders)) {
-      log.warn('trustedFolders.json is malformed — expected { folders: string[] }', { path: filePath });
-      return [];
-    }
-
-    return parsed.folders;
+    const map = await readTrustedMap(filePath);
+    return Object.keys(map);
   } catch (err) {
     log.error('Failed to read trustedFolders.json', { path: filePath, error: err });
     return [];
@@ -60,15 +88,23 @@ export async function getTrustedFolders(): Promise<string[]> {
  */
 export async function addTrustedFolder(folderPath: string): Promise<void> {
   const filePath = getTrustedFoldersPath();
-  const existing = await getTrustedFolders();
+  let map: TrustedFoldersMap = {};
 
-  if (existing.includes(folderPath)) {
+  if (await fileExists(filePath)) {
+    try {
+      map = await readTrustedMap(filePath);
+    } catch (err) {
+      log.error('Failed to read trustedFolders.json — starting fresh', { path: filePath, error: err });
+    }
+  }
+
+  if (map[folderPath] === "TRUST_FOLDER") {
     log.debug('Folder already in trusted list — no changes', { folderPath });
     return;
   }
 
-  existing.push(folderPath);
-  await writeFile(filePath, JSON.stringify({ folders: existing }, null, 2) + "\n", "utf-8");
+  map[folderPath] = "TRUST_FOLDER";
+  await writeTrustedMap(filePath, map);
   log.info(`Added to trusted list: ${folderPath}`);
 }
 
@@ -85,22 +121,15 @@ export async function removeTrustedFolder(folderPath: string): Promise<void> {
   }
 
   try {
-    const raw = await readFile(filePath, "utf-8");
-    const parsed: TrustedFoldersFile = JSON.parse(raw);
+    const map = await readTrustedMap(filePath);
 
-    if (!Array.isArray(parsed.folders)) {
-      log.warn('trustedFolders.json is malformed — skipping removal', { path: filePath });
-      return;
-    }
-
-    const filtered = parsed.folders.filter((f) => f !== folderPath);
-
-    if (filtered.length === parsed.folders.length) {
+    if (!(folderPath in map)) {
       log.debug('Folder not found in trustedFolders.json — no changes', { folderPath });
       return;
     }
 
-    await writeFile(filePath, JSON.stringify({ folders: filtered }, null, 2) + "\n", "utf-8");
+    delete map[folderPath];
+    await writeTrustedMap(filePath, map);
     log.info('Removed folder from trustedFolders.json', { folderPath });
   } catch (err) {
     log.error('Failed to update trustedFolders.json', { path: filePath, error: err });
