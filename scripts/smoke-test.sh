@@ -5,7 +5,23 @@ HUB_URL="${HUB_URL:-http://localhost:3000/api}"
 # 🛠️ Create a REAL temporary project folder
 TEST_PROJECT=$(mktemp -d -t gemini-test-project.XXXXXX)
 GOVERNANCE_PROJECT="" # Populated in test 7; cleaned up by the trap
-trap 'rm -rf "$TEST_PROJECT"; [ -n "$GOVERNANCE_PROJECT" ] && rm -rf "$GOVERNANCE_PROJECT"' EXIT
+
+cleanup() {
+  echo -e "\n\033[1m[Cleanup] Purging test paths from Registry...\033[0m"
+  for PROJ in "$TEST_PROJECT" "$GOVERNANCE_PROJECT"; do
+    echo "Purging $PROJ from Registry..."
+    if [ -n "$PROJ" ]; then
+      # Purge from disk + memory via existing Hub API
+      curl -s -X POST "$HUB_URL/registry/unregister" \
+           -H "Content-Type: application/json" \
+           -d "{\"folderPath\": \"$PROJ\"}" > /dev/null
+      # Delete physical temp directory
+      rm -rf "$PROJ"
+    fi
+  done
+  echo -e "\033[32m[Cleanup] Done.\033[0m"
+}
+trap cleanup EXIT
 
 # 📝 Inject a local memory file to verify the Hub reads it
 echo "You are a test assistant. Your secret code is BLUE_MONKEY." > "$TEST_PROJECT/GEMINI.md"
@@ -46,13 +62,29 @@ fi
 
 # 4. Negative Test (Nonexistent folder)
 bold "[4/7] Validating Ghost Folder Rejection..."
+GHOST_PATH="/tmp/should-not-exist-12345"
+
+# Trigger the start request
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start" \
      -H "Content-Type: application/json" \
-     -d "{\"folderPath\": \"/tmp/should-not-exist-12345\"}")
-if [ "$HTTP_CODE" -ge 400 ]; then
-  green "  PASS: Hub correctly rejected ghost folder (HTTP $HTTP_CODE)"
+     -d "{\"folderPath\": \"$GHOST_PATH\"}")
+
+# First Assertion: Must return 400+
+if [ "$HTTP_CODE" -lt 400 ]; then
+  red "  FAIL: Hub accepted a nonexistent folder (HTTP $HTTP_CODE)!"
+  exit 1
+fi
+
+# Second Assertion: Verify the folder was NOT added to the registry/trust list
+LIST_RESPONSE=$(curl -s "$HUB_URL/registry/list")
+FOUND=$(echo "$LIST_RESPONSE" | jq --arg p "$GHOST_PATH" '[.folders[] | select(.path == $p)] | length')
+
+if [ "$FOUND" -eq 0 ]; then
+  green "  PASS: Hub rejected folder and did not create a Ghost Trust"
 else
-  red "  FAIL: Hub accepted a nonexistent folder!"
+  red "  FAIL: Hub returned $HTTP_CODE but still added ghost folder to trustedFolders.json!"
+  # Cleanup specifically for this ghost if it was created, to keep the registry clean
+  curl -s -X POST "$HUB_URL/registry/unregister" -H "Content-Type: application/json" -d "{\"folderPath\": \"$GHOST_PATH\"}" > /dev/null
   exit 1
 fi
 

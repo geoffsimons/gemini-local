@@ -84,7 +84,11 @@ export async function getTrustedFolders(): Promise<string[]> {
 
 /**
  * Adds a single folder path to the trusted list and writes back to disk.
- * No-op if the path is already present.
+ * No-op if the path is already present (idempotent).
+ *
+ * **Caller responsibility**: Routes must verify the directory exists on disk
+ * (e.g. `fs.existsSync`) *before* calling this function. This method does not
+ * perform filesystem validation — it trusts whatever path it receives.
  */
 export async function addTrustedFolder(folderPath: string): Promise<void> {
   const filePath = getTrustedFoldersPath();
