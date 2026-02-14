@@ -19,19 +19,19 @@ bold "  Project: $TEST_PROJECT"
 bold "============================================"
 
 # 1. Health Check
-bold "[1/5] Health Check"
+bold "[1/6] Health Check"
 curl -sf "$HUB_URL/health" > /dev/null || (red "Hub is not running at $HUB_URL"; exit 1)
 green "  PASS: Hub is online"
 
 # 2. Warm-up (Should now pass because folder exists)
-bold "[2/5] Initializing Sandbox..."
+bold "[2/6] Initializing Sandbox..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start" \
      -H "Content-Type: application/json" \
      -d "{\"folderPath\": \"$TEST_PROJECT\"}")
 if [ "$HTTP_CODE" -eq 200 ]; then green "  PASS: Sandbox warmed up"; else red "  FAIL: HTTP $HTTP_CODE"; exit 1; fi
 
 # 3. Context & Memory Test
-bold "[3/5] Verifying GEMINI.md Injection..."
+bold "[3/6] Verifying GEMINI.md Injection..."
 RESPONSE=$(curl -s -X POST "$HUB_URL/chat/prompt" \
      -H "Content-Type: application/json" \
      -d "{\"folderPath\": \"$TEST_PROJECT\", \"message\": \"What is your secret code?\"}")
@@ -44,7 +44,7 @@ else
 fi
 
 # 4. Negative Test (Nonexistent folder)
-bold "[4/5] Validating Ghost Folder Rejection..."
+bold "[4/6] Validating Ghost Folder Rejection..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start" \
      -H "Content-Type: application/json" \
      -d "{\"folderPath\": \"/tmp/should-not-exist-12345\"}")
@@ -56,7 +56,7 @@ else
 fi
 
 # 5. Session Clear (Memory Wipe)
-bold "[5/5] Session Clear..."
+bold "[5/6] Session Clear..."
 # Plant a name into the conversation history
 curl -s -X POST "$HUB_URL/chat/prompt" \
      -H "Content-Type: application/json" \
@@ -80,6 +80,51 @@ if [[ "$TEXT" != *"HubTest"* ]]; then
   green "  PASS: Memory wipe successful — AI no longer remembers HubTest"
 else
   red "  FAIL: AI still remembers HubTest after clear. Response: $TEXT"
+  exit 1
+fi
+
+# 6. Visual Context Validation (pure-Node image generation + stitching)
+bold "[6/6] Visual Context Validation..."
+
+# Generate three 100x100 solid-color PNGs as base64 via sharp
+RED_BASE64=$(node -e "require('sharp')({create:{width:100,height:100,channels:4,background:{r:255,g:0,b:0,alpha:1}}}).png().toBuffer().then(b => console.log(b.toString('base64')))")
+GREEN_BASE64=$(node -e "require('sharp')({create:{width:100,height:100,channels:4,background:{r:0,g:255,b:0,alpha:1}}}).png().toBuffer().then(b => console.log(b.toString('base64')))")
+BLUE_BASE64=$(node -e "require('sharp')({create:{width:100,height:100,channels:4,background:{r:0,g:0,b:255,alpha:1}}}).png().toBuffer().then(b => console.log(b.toString('base64')))")
+
+PAYLOAD=$(cat <<ENDJSON
+{
+  "folderPath": "$TEST_PROJECT",
+  "message": "Identify these three colors from left to right. Return ONLY a JSON list of hex codes.",
+  "images": [
+    { "data": "$RED_BASE64",   "mimeType": "image/png" },
+    { "data": "$GREEN_BASE64", "mimeType": "image/png" },
+    { "data": "$BLUE_BASE64",  "mimeType": "image/png" }
+  ]
+}
+ENDJSON
+)
+
+RESPONSE=$(curl -s -X POST "$HUB_URL/chat/prompt" \
+     -H "Content-Type: application/json" \
+     -d "$PAYLOAD")
+TEXT=$(echo "$RESPONSE" | jq -r '.response')
+
+PASS=true
+for HEX in "#FF0000" "#00FF00" "#0000FF"; do
+  if [[ "$TEXT" != *"$HEX"* ]]; then
+    # Also accept lowercase variants
+    HEX_LOWER=$(echo "$HEX" | tr '[:upper:]' '[:lower:]')
+    if [[ "$TEXT" != *"$HEX_LOWER"* ]]; then
+      PASS=false
+      red "  FAIL: Response missing expected color $HEX. Response: $TEXT"
+      break
+    fi
+  fi
+done
+
+if $PASS; then
+  green "  PASS: Model correctly identified all three colors from stitched composite"
+else
   exit 1
 fi
 

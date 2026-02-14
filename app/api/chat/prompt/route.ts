@@ -1,74 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
 import { createLogger } from "@/lib/logger";
+import { cleanBase64, stitchImages } from "@/lib/images";
 import { GeminiEventType } from "@google/gemini-cli-core";
 import path from "path";
-import sharp from "sharp";
 
 const logger = createLogger('Hub/API/Chat');
 
 // ---------------------------------------------------------------------------
-// Helpers ported from /legacy/gemini-serve/server.js
+// Types
 // ---------------------------------------------------------------------------
 
 interface ImagePayload {
   data: string;
   mimeType: string;
-}
-
-/** Strip data-URI prefix and whitespace that would corrupt the buffer. */
-function cleanBase64(data: string): string {
-  let clean = data;
-  if (clean.includes('base64,')) {
-    clean = clean.split('base64,')[1];
-  }
-  return clean.replace(/\s/g, '');
-}
-
-/** Stitch multiple images into a single horizontal composite. */
-async function stitchImages(images: ImagePayload[]): Promise<string> {
-  // 1. Decode + normalise every image
-  const assets = await Promise.all(
-    images.map(async (img) => {
-      const rawBuffer = Buffer.from(cleanBase64(img.data), 'base64');
-      const instance = sharp(rawBuffer, { failOn: 'none' });
-      const metadata = await instance.metadata();
-      const cleanBuffer = await instance.toBuffer();
-      return { buffer: cleanBuffer, metadata };
-    }),
-  );
-
-  // 2. Canvas dimensions
-  let totalWidth = 0;
-  let maxHeight = 0;
-  for (const img of assets) {
-    totalWidth += img.metadata.width!;
-    maxHeight = Math.max(maxHeight, img.metadata.height!);
-  }
-
-  // 3. Composite operations
-  let currentX = 0;
-  const compositeOps = assets.map((img) => {
-    const op = { input: img.buffer, top: 0, left: currentX };
-    currentX += img.metadata.width!;
-    return op;
-  });
-
-  // 4. Render
-  const stitchedBuffer = await sharp({
-    create: {
-      width: totalWidth,
-      height: maxHeight,
-      channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    },
-    failOn: 'none',
-  })
-    .composite(compositeOps)
-    .png()
-    .toBuffer();
-
-  return stitchedBuffer.toString('base64');
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +90,7 @@ export async function POST(req: NextRequest) {
     let compositeBase64: string | null = null;
     const hasMultipleImages = Array.isArray(images) && images.length > 1;
     if (hasMultipleImages) {
-      logger.info(`Stitching ${images.length} images`);
+      logger.info(`Stitching ${images.length} images...`);
       compositeBase64 = await stitchImages(images);
     }
 
