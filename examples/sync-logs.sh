@@ -55,11 +55,16 @@ $HISTORY
 
 # 5. Query the Hub
 echo "🤖 Querying Gemini Hub for documentation updates..."
-RESPONSE="$(curl -s -X POST "$HUB_URL" \
-    -H "Content-Type: application/json" \
-    -d "{\"folderPath\": \"$PROJECT_PATH\", \"message\": \"$PROMPT\"}")"
+PAYLOAD=$(jq -n \
+  --arg fp "$PROJECT_PATH" \
+  --arg msg "$PROMPT" \
+  '{folderPath: $fp, message: $msg}')
 
-OUTPUT="$(echo "$RESPONSE" | jq -r '.response')"
+RESPONSE=$(curl -s -X POST "$HUB_URL" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD")
+
+OUTPUT=$(echo "$RESPONSE" | jq -r '.response')
 
 if [[ -z "$OUTPUT" || "$OUTPUT" == "null" ]]; then
     echo "❌ Error: Failed to get a response from the Hub."

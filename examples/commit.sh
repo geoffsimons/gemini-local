@@ -41,10 +41,16 @@ User Hint: ${hint_content}"
     fi
 
     # API Request to Hub
+    local PAYLOAD
+    PAYLOAD=$(jq -n \
+      --arg fp "$PROJECT_PATH" \
+      --arg msg "$prompt" \
+      '{folderPath: $fp, message: $msg}')
+
     local response
-    response="$(curl -s -X POST "$HUB_URL" \
+    response=$(curl -s -X POST "$HUB_URL" \
         -H "Content-Type: application/json" \
-        -d "{\"folderPath\": \"$PROJECT_PATH\", \"message\": \"$prompt\"}")"
+        -d "$PAYLOAD")
 
     echo "$response" | jq -r '.response'
 }
