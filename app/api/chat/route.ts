@@ -104,6 +104,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const errorMessage =
       error instanceof Error ? error.message : "Internal server error";
     console.error("[/api/chat] Error:", errorMessage);
+
+    // If the session is stale / not initialized, reset the singleton so
+    // the user's next attempt (via the Retry button) starts a fresh session.
+    if (errorMessage.includes("not initialized")) {
+      try {
+        await getGeminiClient(true);
+      } catch {
+        // Reset failed; the next user attempt will retry initialization
+      }
+    }
+
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

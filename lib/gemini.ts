@@ -1,6 +1,7 @@
 import { GeminiClient, Config, sessionId } from "@google/gemini-cli-core";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getGeminiStatus } from "@/lib/gemini-status";
 
 /**
  * Extend globalThis to persist the client and config across Next.js hot-reloads.
@@ -27,8 +28,16 @@ function loadUserMemory(): string {
 
 /**
  * Performs the actual client initialization. Called only once, inside the lock.
+ * Throws "FOLDER_NOT_TRUSTED" if the current working directory has not been
+ * added to `~/.gemini/trustedFolders.json`, preventing the CLI from hanging
+ * while waiting for manual shell approval.
  */
 async function createGeminiClient(): Promise<GeminiClient> {
+  const status = getGeminiStatus();
+  if (!status.isCurrentFolderTrusted) {
+    throw new Error("FOLDER_NOT_TRUSTED");
+  }
+
   const cwd = process.cwd();
 
   const config = new Config({
@@ -67,17 +76,35 @@ async function createGeminiClient(): Promise<GeminiClient> {
  * await the same initialization via a lock.
  *
  * Subsequent calls (including after hot-reload) return the cached instance.
+ *
+ * @param forceReload - When `true`, wipes the cached client and init lock
+ *   so a fresh CLI process is spawned. Used after updating folder trust or
+ *   recovering from a stale session.
  */
-export async function getGeminiClient(): Promise<GeminiClient> {
+export async function getGeminiClient(
+  forceReload = false,
+): Promise<GeminiClient> {
+  if (forceReload) {
+    globalThis.geminiClient = undefined;
+    globalThis.geminiInitLock = undefined;
+  }
+
   if (globalThis.geminiClient) {
     return globalThis.geminiClient;
   }
 
   if (!globalThis.geminiInitLock) {
     globalThis.geminiInitLock = (async () => {
-      const client = await createGeminiClient();
-      globalThis.geminiClient = client;
-      return client;
+      try {
+        const client = await createGeminiClient();
+        globalThis.geminiClient = client;
+        return client;
+      } catch (err) {
+        // Clear the lock so a subsequent call can retry after the user
+        // resolves the issue (e.g. trusting the folder).
+        globalThis.geminiInitLock = undefined;
+        throw err;
+      }
     })();
   }
 

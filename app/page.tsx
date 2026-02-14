@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, ImagePlus, X, Loader2, Sparkles, RotateCcw } from "lucide-react";
+import { Send, ImagePlus, X, Loader2, Sparkles, RotateCcw, ShieldAlert, ShieldCheck, FolderLock } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -125,6 +125,17 @@ function ImagePreview({
 }
 
 // ---------------------------------------------------------------------------
+// Types – System Status
+// ---------------------------------------------------------------------------
+
+interface GeminiStatus {
+  isLoggedIn: boolean;
+  isCurrentFolderTrusted: boolean;
+  trustedFolders: string[];
+  currentPath: string;
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -134,9 +145,57 @@ export default function Home() {
   const [selectedImages, setSelectedImages] = useState<ImageAttachment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // System status
+  const [status, setStatus] = useState<GeminiStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [authorizing, setAuthorizing] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // -------------------------------------------------------------------------
+  // System status check
+  // -------------------------------------------------------------------------
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      setStatusLoading(true);
+      const res = await fetch("/api/gemini/status");
+      if (res.ok) {
+        const data: GeminiStatus = await res.json();
+        setStatus(data);
+      }
+    } catch {
+      // Silently fail – the overlay simply won't dismiss
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  const handleAuthorize = useCallback(async () => {
+    if (!status) return;
+    setAuthorizing(true);
+    try {
+      const res = await fetch("/api/gemini/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: status.currentPath }),
+      });
+      if (res.ok) {
+        const data: GeminiStatus = await res.json();
+        setStatus(data);
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setAuthorizing(false);
+    }
+  }, [status]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -322,8 +381,72 @@ export default function Home() {
     }
   }, [lastUserMessage, isLoading]);
 
+  // Whether the overlay should be shown
+  const showSetupOverlay =
+    !statusLoading && status !== null && !status.isCurrentFolderTrusted;
+
   return (
     <div className="flex h-dvh flex-col bg-zinc-950 font-sans text-zinc-100">
+      {/* ---- Setup Required Overlay ---- */}
+      {showSetupOverlay && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-950/90 backdrop-blur-sm">
+          <div className="mx-4 flex w-full max-w-md flex-col items-center gap-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-8 text-center shadow-2xl">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10">
+              <ShieldAlert className="h-8 w-8 text-amber-400" />
+            </div>
+
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-100">
+                Setup Required
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                The current working directory has not been authorized for the
+                Gemini CLI. Trust this folder to continue.
+              </p>
+            </div>
+
+            <div className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                <FolderLock className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate font-mono">{status.currentPath}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAuthorize}
+              disabled={authorizing}
+              className={cn(
+                "flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-medium transition-colors",
+                authorizing
+                  ? "cursor-not-allowed bg-violet-600/50 text-violet-300"
+                  : "bg-violet-600 text-white hover:bg-violet-500",
+              )}
+            >
+              {authorizing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Authorizing…
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-4 w-4" />
+                  Authorize This Folder
+                </>
+              )}
+            </button>
+
+            {!status.isLoggedIn && (
+              <p className="text-xs text-amber-400/80">
+                Note: You do not appear to be logged in (no oauth_creds.json
+                found). Run <code className="font-mono">gemini auth login</code>{" "}
+                first.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 px-6 py-4">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-600">
