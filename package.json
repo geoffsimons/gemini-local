@@ -30,7 +30,9 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:integration": "npx tsx tests/integration.test.ts",
+    "test:smoke": "./scripts/smoke-test.sh"
   },
   "dependencies": {
     "@google/gemini-cli-core": "^0.28.2",
