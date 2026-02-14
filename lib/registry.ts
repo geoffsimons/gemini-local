@@ -26,6 +26,11 @@ class ClientRegistry {
     let session = this.sessions.get(registryKey);
 
     if (!session) {
+      if (!existsSync(folderPath)) {
+        log.warn('Rejected session for nonexistent directory', { folder: folderPath });
+        throw new Error(`Directory does not exist: ${folderPath}`);
+      }
+
       log.info('Creating new session for folder', { folder: folderPath, sessionId });
 
       const config = new Config({
@@ -92,6 +97,11 @@ class ClientRegistry {
 
         session.initialized = true;
         log.info('Session initialized successfully', { folder: folderPath, sessionId: sid });
+      } catch (err) {
+        // Evict the broken session so callers don't get a half-initialised entry
+        this.sessions.delete(registryKey);
+        log.error('Initialization failed — session evicted from registry', { folder: folderPath, error: err });
+        throw err;
       } finally {
         this.pendingInits.delete(registryKey);
       }
