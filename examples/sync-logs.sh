@@ -1,10 +1,13 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
+# Compatible with Bash and Zsh.
 
 # Gemini Local Hub - Example Log Sync Utility
 # Usage: Copy this to your project root and run ./sync-logs.sh
 
+set -euo pipefail
+
 HUB_URL="http://localhost:3000/api/chat/prompt"
-PROJECT_PATH=$(pwd -P)
+PROJECT_PATH="$(pwd -P)"
 
 # 1. Health Check
 if ! curl -s -f "http://localhost:3000/api/health" > /dev/null; then
@@ -13,11 +16,11 @@ if ! curl -s -f "http://localhost:3000/api/health" > /dev/null; then
 fi
 
 # 2. Gather recent git history
-HISTORY=$(git log -n 15 --pretty=format:"%h - %ad : %s" --date=short)
+HISTORY="$(git log -n 15 --pretty=format:"%h - %ad : %s" --date=short)"
 
 # 3. Read existing context summaries
-CHANGELOG_CONTENT=$(head -n 50 CHANGELOG.md 2>/dev/null || echo "")
-DECISIONS_LOG=$(tail -n 50 DECISIONS.md 2>/dev/null || echo "")
+CHANGELOG_CONTENT="$(head -n 50 CHANGELOG.md 2>/dev/null || echo "")"
+DECISIONS_LOG="$(tail -n 50 DECISIONS.md 2>/dev/null || echo "")"
 
 # 4. Define the prompt
 PROMPT="Analyze the following git history and prepare updates for our project documentation.
@@ -52,11 +55,11 @@ $HISTORY
 
 # 5. Query the Hub
 echo "🤖 Querying Gemini Hub for documentation updates..."
-RESPONSE=$(curl -s -X POST "$HUB_URL" \
+RESPONSE="$(curl -s -X POST "$HUB_URL" \
     -H "Content-Type: application/json" \
-    -d "{\"folderPath\": \"$PROJECT_PATH\", \"message\": \"$PROMPT\"}")
+    -d "{\"folderPath\": \"$PROJECT_PATH\", \"message\": \"$PROMPT\"}")"
 
-OUTPUT=$(echo "$RESPONSE" | jq -r '.response')
+OUTPUT="$(echo "$RESPONSE" | jq -r '.response')"
 
 if [[ -z "$OUTPUT" || "$OUTPUT" == "null" ]]; then
     echo "❌ Error: Failed to get a response from the Hub."
@@ -64,6 +67,8 @@ if [[ -z "$OUTPUT" || "$OUTPUT" == "null" ]]; then
 fi
 
 # 6. Process the output with Python
+# The pipe-based approach is robust for large strings in both Bash and Zsh,
+# as data flows through stdin rather than command-line arguments.
 echo "$OUTPUT" | python3 -c "
 import sys, re, os
 

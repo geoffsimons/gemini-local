@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Compatible with Bash and Zsh.
 # ===========================================================================
 # connect.sh — Link the current project to the Gemini Local Hub
 # ===========================================================================
@@ -40,13 +41,13 @@ echo "🔗 Connecting project: $PROJECT_PATH"
 # ---------------------------------------------------------------------------
 echo "🩺 Checking Hub at $HUB_URL ..."
 
-HEALTH_RESPONSE=$(curl -sf "${HUB_URL}/api/health" 2>/dev/null) || {
+HEALTH_RESPONSE="$(curl -sf "${HUB_URL}/api/health" 2>/dev/null)" || {
   echo "❌ Gemini Local Hub is not running at $HUB_URL"
   echo "   Start the Hub first, then re-run this script."
   exit 1
 }
 
-HEALTH_STATUS=$(echo "$HEALTH_RESPONSE" | jq -r '.status')
+HEALTH_STATUS="$(echo "$HEALTH_RESPONSE" | jq -r '.status')"
 if [ "$HEALTH_STATUS" != "ok" ]; then
   echo "❌ Hub returned unexpected health status: $HEALTH_STATUS"
   exit 1
@@ -59,9 +60,9 @@ echo "✅ Hub is healthy"
 # ---------------------------------------------------------------------------
 echo "📡 Registering project with the Hub ..."
 
-START_RESPONSE=$(curl -sf -X POST "${HUB_URL}/api/chat/start" \
+START_RESPONSE="$(curl -sf -X POST "${HUB_URL}/api/chat/start" \
   -H "Content-Type: application/json" \
-  -d "{\"folderPath\": \"${PROJECT_PATH}\"}" 2>/dev/null) || {
+  -d "{\"folderPath\": \"${PROJECT_PATH}\"}" 2>/dev/null)" || {
   echo "❌ Failed to register project. Is the path valid?"
   exit 1
 }
@@ -69,11 +70,11 @@ START_RESPONSE=$(curl -sf -X POST "${HUB_URL}/api/chat/start" \
 # ---------------------------------------------------------------------------
 # 4. Validation — confirm the Hub accepted the project
 # ---------------------------------------------------------------------------
-START_STATUS=$(echo "$START_RESPONSE" | jq -r '.status')
-RESOLVED_PATH=$(echo "$START_RESPONSE" | jq -r '.folderPath')
+START_STATUS="$(echo "$START_RESPONSE" | jq -r '.status')"
+RESOLVED_PATH="$(echo "$START_RESPONSE" | jq -r '.folderPath')"
 
 if [ "$START_STATUS" != "ready" ]; then
-  ERROR_MSG=$(echo "$START_RESPONSE" | jq -r '.error // "unknown error"')
+  ERROR_MSG="$(echo "$START_RESPONSE" | jq -r '.error // "unknown error"')"
   echo "❌ Hub did not accept the project: $ERROR_MSG"
   exit 1
 fi
