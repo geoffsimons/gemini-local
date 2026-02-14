@@ -114,12 +114,11 @@ class ClientRegistry {
   public async clearSession(folderPath: string, sessionId?: string): Promise<void> {
     const sid = sessionId || this.generateStableId(folderPath);
     const registryKey = `${folderPath}:${sid}`;
-    const session = this.sessions.get(registryKey);
 
-    if (session) {
-      await session.client.startChat();
-      log.info(`Session cleared for ${registryKey}`);
-    }
+    this.sessions.delete(registryKey);
+    this.pendingInits.delete(registryKey);
+
+    log.info(`Session purged from Registry: ${registryKey}. Next request will trigger a fresh initialization.`);
   }
 
   public isReady(folderPath: string): boolean {
