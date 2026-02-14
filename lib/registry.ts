@@ -2,6 +2,9 @@ import { GeminiClient, Config, sessionId, AuthType } from "@google/gemini-cli-co
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { scryptSync } from "node:crypto";
+import { createLogger } from "./logger";
+
+const log = createLogger('Hub/Registry');
 
 interface ProjectSession {
   client: GeminiClient;
@@ -22,6 +25,8 @@ class ClientRegistry {
     let session = this.sessions.get(registryKey);
 
     if (!session) {
+      log.info('Creating new session for folder', { folder: folderPath, sessionId });
+
       const config = new Config({
         sessionId: sessionId,
         model: "gemini-2.5-flash",
@@ -44,6 +49,9 @@ class ClientRegistry {
     const session = await this.sessions.get(folderPath);
     if (!session || session.initialized) return;
 
+    const sid = session.config.sessionId;
+    log.info('Initializing session', { folder: folderPath, sessionId: sid });
+
     // --- Start of Golden Copy Logic ---
     await session.config.initialize();
 
@@ -53,15 +61,23 @@ class ClientRegistry {
     const memoryPath = join(folderPath, "GEMINI.md");
     if (existsSync(memoryPath)) {
       session.config.setUserMemory(readFileSync(memoryPath, "utf-8"));
+    } else {
+      log.error('GEMINI.md not found — session will lack project memory', { folder: folderPath, sessionId: sid });
     }
 
-    await session.client.initialize();
-    session.client.updateSystemInstruction();
+    try {
+      await session.client.initialize();
+      session.client.updateSystemInstruction();
 
-    await session.client.startChat();
+      await session.client.startChat();
+    } catch (err) {
+      log.error('CLI initialization failed', { folder: folderPath, sessionId: sid, error: err });
+      throw err;
+    }
     // --- End of Golden Copy Logic ---
 
     session.initialized = true;
+    log.info('Session initialized successfully', { folder: folderPath, sessionId: sid });
   }
 
   public isReady(folderPath: string): boolean {
