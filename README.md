@@ -52,8 +52,7 @@ The Hub leverages the Gemini CLI's **`oauth-personal`** authentication flow. The
 If you haven't already, install the CLI globally:
 
 ```bash
-# See https://geminicli.com/docs/get-started/installation/
-npm install -g @anthropic-ai/gemini-cli   # or follow the official guide
+npm install -g @google/gemini-cli
 ```
 
 ### 2. Authenticate with Google
@@ -226,6 +225,88 @@ curl -X POST http://localhost:3000/api/chat/clear \
 
 ```json
 { "success": true, "message": "Session history cleared" }
+```
+
+---
+
+## Client Integration Guide
+
+Use the Hub as a backend from any TypeScript or JavaScript project. The following `askHub` utility wraps the `/api/chat/prompt` endpoint into a single async call:
+
+```typescript
+const HUB_URL = process.env.HUB_URL ?? "http://localhost:3000/api";
+
+interface ImagePayload {
+  data: string;      // base64-encoded image
+  mimeType: string;  // e.g. "image/png"
+}
+
+interface HubResponse {
+  response?: string;
+  error?: string;
+  details?: string;
+}
+
+async function askHub(
+  folderPath: string,
+  message: string,
+  images?: ImagePayload[],
+): Promise<string> {
+  const res = await fetch(`${HUB_URL}/chat/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folderPath, message, images }),
+  });
+
+  const data: HubResponse = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.details ?? data.error ?? `Hub returned ${res.status}`);
+  }
+
+  return data.response!;
+}
+```
+
+**Usage**
+
+```typescript
+// Text-only prompt
+const answer = await askHub("/Users/you/my-project", "Summarize this repo.");
+
+// Multimodal prompt — the Hub stitches multiple images automatically
+const analysis = await askHub(
+  "/Users/you/my-project",
+  "Compare these two screenshots.",
+  [
+    { data: screenshotA, mimeType: "image/png" },
+    { data: screenshotB, mimeType: "image/png" },
+  ],
+);
+```
+
+**Session lifecycle helpers**
+
+```typescript
+// Warm up a session before the first prompt
+await fetch(`${HUB_URL}/chat/start`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ folderPath: "/Users/you/my-project" }),
+});
+
+// Check readiness
+const status = await fetch(
+  `${HUB_URL}/chat/status?folderPath=/Users/you/my-project`,
+).then(r => r.json());
+console.log(status.ready); // true | false
+
+// Reset conversation history
+await fetch(`${HUB_URL}/chat/clear`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ folderPath: "/Users/you/my-project" }),
+});
 ```
 
 ---
