@@ -125,6 +125,15 @@ class ClientRegistry {
     const registryKey = `${folderPath}:${this.generateStableId(folderPath)}`;
     return this.sessions.get(registryKey)?.initialized ?? false;
   }
+
+  public getStatus(folderPath: string): { isReady: boolean; sessionId?: string } {
+    const sessionId = this.generateStableId(folderPath);
+    const registryKey = `${folderPath}:${sessionId}`;
+    const session = this.sessions.get(registryKey);
+
+    if (!session) return { isReady: false };
+    return { isReady: session.initialized, sessionId };
+  }
 }
 
 // Global singleton to survive Next.js Fast Refresh
