@@ -111,6 +111,17 @@ class ClientRegistry {
     await initPromise;
   }
 
+  public async clearSession(folderPath: string, sessionId?: string): Promise<void> {
+    const sid = sessionId || this.generateStableId(folderPath);
+    const registryKey = `${folderPath}:${sid}`;
+    const session = this.sessions.get(registryKey);
+
+    if (session) {
+      await session.client.startChat();
+      log.info(`Session cleared for ${registryKey}`);
+    }
+  }
+
   public isReady(folderPath: string): boolean {
     const registryKey = `${folderPath}:${this.generateStableId(folderPath)}`;
     return this.sessions.get(registryKey)?.initialized ?? false;
