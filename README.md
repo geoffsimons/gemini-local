@@ -6,232 +6,93 @@ Built on Next.js and the [`@google/gemini-cli-core`](https://www.npmjs.com/packa
 
 ---
 
-## Architectural Overview
+## Mission Control
 
-### The Folder-as-Key Registry
+The root path (`/`) serves a split-pane **Hub Console** for monitoring and testing:
 
-The Hub's core abstraction is the **ClientRegistry** (`lib/registry.ts`), a global singleton that maps each project directory to a fully initialized `GeminiClient` session.
+| Pane | Purpose |
+|---|---|
+| **Project List** (left sidebar) | Displays all registered folders from `trustedFolders.json` with live readiness status. Supports warm-up, session clearing, and unregistration inline. |
+| **Chat Playground** (main area) | Select any registered project and send text or multi-image prompts directly. Useful for verifying session initialization, model responsiveness, and image stitching without `curl`. |
 
-```
-┌──────────────────────────────────────────────────┐
-│                  ClientRegistry                  │
-│                                                  │
-│  "/Users/you/project-a:ab3f01c2" → Session A     │
-│  "/Users/you/project-b:7e9d44a1" → Session B     │
-│  "/Users/you/project-c:c1f8e003" → Session C     │
-│                                                  │
-│  Key = resolved folder path + stable hash        │
-│  Value = { GeminiClient, Config, initialized }   │
-└──────────────────────────────────────────────────┘
-```
-
-- **Stable identity**: Each folder path is hashed via `scrypt` to produce a deterministic session ID.
-- **Lazy initialization**: Sessions are created on first request and cached for the lifetime of the server process.
-- **Concurrency-safe**: A per-key promise lock prevents duplicate initialization when parallel requests arrive for the same folder.
-
-### Authentication
-
-The Hub leverages the Gemini CLI's **`oauth-personal`** authentication flow. There is no API key to manage — the server calls `config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE)` at session init, reusing the OAuth token cached by `gemini login`.
+The console calls the same API endpoints documented below — it is a first-party consumer of the Hub's own surface.
 
 ---
 
-## Prerequisites
+## API Surface
 
-| Requirement | Version | Notes |
+All endpoints accept and return JSON. The `folderPath` parameter is resolved to an absolute path server-side.
+
+### Operational — `/api/chat`
+
+Session lifecycle and prompt execution for Gemini conversations.
+
+| Method | Endpoint | Description |
 |---|---|---|
-| **Node.js** | >= 18.17.0 | LTS recommended |
-| **Gemini CLI** | Latest | [Installation guide](https://geminicli.com/docs/get-started/installation/) |
-| **Google Account** | — | For the OAuth handshake |
+| `POST` | `/api/chat/start` | Warm up a session for a folder. Runs the full Golden Copy initialization sequence (auth, memory injection, chat start). Idempotent. |
+| `POST` | `/api/chat/prompt` | Send a text or multimodal prompt. Auto-initializes on first contact if no session exists. Multi-image payloads are stitched into a single composite PNG. |
+| `GET` | `/api/chat/status` | Query parameter: `folderPath`. Returns `{ ready: boolean }` for the given folder's session. |
+| `POST` | `/api/chat/clear` | Destroy the in-memory session. Next request triggers fresh initialization with a clean conversation. |
 
----
+### Administrative — `/api/registry`
 
-## Getting Started
+Folder trust governance and project lifecycle management.
 
-### 1. Install the Gemini CLI
-
-If you haven't already, install the CLI globally:
-
-```bash
-npm install -g @google/gemini-cli
-```
-
-### 2. Authenticate with Google
-
-Run the login command to perform the OAuth handshake. This caches your credentials locally so the Hub can reuse them:
-
-```bash
-gemini login
-```
-
-See: [Gemini CLI Authentication](https://geminicli.com/docs/get-started/authentication/)
-
-### 3. Authorize the Project Directory
-
-The Gemini CLI requires explicit trust for every folder it reads. To authorize the Hub's root directory:
-
-```bash
-cd /path/to/gemini-local
-gemini "hello"
-```
-
-When prompted — *"Do you trust this folder and allow Gemini to read its contents?"* — select **Yes**.
-
-> This adds the path to `~/.gemini/trustedFolders.json`. You only need to do this once per directory.
-
-### 4. Install Dependencies
-
-```bash
-npm install
-```
-
-### 5. Launch the Hub
-
-```bash
-npm run dev
-```
-
-The Hub is now running at [http://localhost:3000](http://localhost:3000).
-
----
-
-## API Documentation
-
-All endpoints are served under `/api/chat/`. The Hub automatically initializes sessions on first contact — you can call `/prompt` directly without calling `/start` first.
-
-### `POST /api/chat/start`
-
-Explicitly warm up a session for a given project folder. Useful for pre-loading before the user sends their first prompt.
-
-**Request Body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `folderPath` | `string` | Yes | Absolute or relative path to the project directory. |
-| `sessionId` | `string` | No | Custom session identifier. Defaults to a stable hash of the folder path. |
-
-**Example**
-
-```bash
-curl -X POST http://localhost:3000/api/chat/start \
-  -H "Content-Type: application/json" \
-  -d '{"folderPath": "/Users/you/my-project"}'
-```
-
-**Response**
-
-```json
-{ "status": "ready", "folderPath": "/Users/you/my-project" }
-```
-
----
-
-### `POST /api/chat/prompt`
-
-Send a text or multimodal prompt to the model within a project session. Handles **multi-image stitching automatically** — when multiple images are attached, the Hub composites them into a single horizontally-stitched image via Sharp before sending to the model.
-
-**Request Body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `folderPath` | `string` | Yes | Absolute or relative path to the project directory. |
-| `sessionId` | `string` | No | Custom session identifier. |
-| `message` | `string` | Conditional | The text prompt. Required if `images` is not provided. |
-| `images` | `ImagePayload[]` | Conditional | Array of image objects. Required if `message` is not provided. |
-
-**`ImagePayload` Schema**
-
-| Field | Type | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `data` | `string` | Base64-encoded image data. |
-| `mimeType` | `string` | MIME type (e.g. `image/png`, `image/jpeg`). |
+| `POST` | `/api/registry/add` | Register a folder as trusted. Validates existence on disk before persisting to `trustedFolders.json`. |
+| `GET` | `/api/registry/list` | Returns all trusted folders with their current in-memory readiness status. |
+| `POST` | `/api/registry/unregister` | Remove a folder from the trust list and purge its in-memory session. Disk removal is atomic; memory purge is best-effort. |
 
-**Example — Text Only**
+### Diagnostics
 
-```bash
-curl -X POST http://localhost:3000/api/chat/prompt \
-  -H "Content-Type: application/json" \
-  -d '{"folderPath": "/Users/you/my-project", "message": "Explain this codebase."}'
-```
-
-**Example — With Images**
-
-```bash
-curl -X POST http://localhost:3000/api/chat/prompt \
-  -H "Content-Type: application/json" \
-  -d '{
-    "folderPath": "/Users/you/my-project",
-    "message": "What do these screenshots show?",
-    "images": [
-      { "data": "<base64>", "mimeType": "image/png" },
-      { "data": "<base64>", "mimeType": "image/png" }
-    ]
-  }'
-```
-
-**Response**
-
-```json
-{ "response": "The model's response text..." }
-```
-
-> When multiple images are provided, they are stitched left-to-right into a single composite PNG. The model receives a system annotation describing the layout.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/health` | Returns `{ status: "ok", uptime: <seconds> }`. No auth required. |
 
 ---
 
-### `GET /api/chat/status`
+## Local Memory
 
-Check whether a session for a given folder is initialized and ready.
+The Hub supports per-project system instructions via a **`GEMINI.md`** file placed at the root of any project directory.
 
-**Query Parameters**
+During the Golden Copy initialization sequence (`lib/registry.ts`), the Hub reads the target folder's `GEMINI.md` and injects its full contents as the model's system instruction via `config.setUserMemory()`. This gives every session a persistent, project-scoped context that survives across prompts.
 
-| Param | Type | Required | Description |
-|---|---|---|---|
-| `folderPath` | `string` | Yes | Absolute or relative path to the project directory. |
-
-**Example**
-
-```bash
-curl "http://localhost:3000/api/chat/status?folderPath=/Users/you/my-project"
+```
+my-project/
+├── GEMINI.md    ← System instruction: "You are a senior engineer working on..."
+├── src/
+└── package.json
 ```
 
-**Response**
+**Behavior:**
 
-```json
-{ "folderPath": "/Users/you/my-project", "ready": true }
-```
+- **Present**: Full text is loaded at session init. The model operates within the constraints defined in the file.
+- **Absent**: Session initializes without project-specific context. A warning is logged.
+- **Reload**: `GEMINI.md` is read once at init. To pick up changes, call `/api/chat/clear` and send a new prompt.
 
 ---
 
-### `POST /api/chat/clear`
+## Folder Trust & Governance
 
-Destroy a session and wipe its conversation history. The next request to that folder will trigger a fresh initialization.
+The Hub enforces a **Verify Before Trust** policy (see ADR-004). Every folder must pass an `existsSync` check before it is persisted to the trust registry. This prevents phantom paths from polluting the system.
 
-**Request Body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `folderPath` | `string` | Yes | Absolute or relative path to the project directory. |
-| `sessionId` | `string` | No | Custom session identifier. |
-
-**Example**
-
-```bash
-curl -X POST http://localhost:3000/api/chat/clear \
-  -H "Content-Type: application/json" \
-  -d '{"folderPath": "/Users/you/my-project"}'
-```
-
-**Response**
+**Storage format** (`~/.gemini/trustedFolders.json`):
 
 ```json
-{ "success": true, "message": "Session history cleared" }
+{
+  "/Users/you/project-a": "TRUST_FOLDER",
+  "/Users/you/project-b": "TRUST_FOLDER"
+}
 ```
+
+The on-disk schema is an **Object Key-Value map** — `Record<string, "TRUST_FOLDER">`. If the file contains the legacy array format (`{ folders: string[] }`), `lib/folders.ts` performs a self-healing migration on first read and writes the corrected map back to disk.
 
 ---
 
 ## Client Integration Guide
 
-Use the Hub as a backend from any TypeScript or JavaScript project. The following `askHub` utility wraps the `/api/chat/prompt` endpoint into a single async call:
+Use the Hub as a backend from any TypeScript or JavaScript project. The following `askHub` utility wraps `/api/chat/prompt` into a single async call:
 
 ```typescript
 const HUB_URL = process.env.HUB_URL ?? "http://localhost:3000/api";
@@ -268,7 +129,7 @@ async function askHub(
 }
 ```
 
-**Usage**
+**Usage:**
 
 ```typescript
 // Text-only prompt
@@ -285,7 +146,7 @@ const analysis = await askHub(
 );
 ```
 
-**Session lifecycle helpers**
+**Session lifecycle helpers:**
 
 ```typescript
 // Warm up a session before the first prompt
@@ -311,22 +172,74 @@ await fetch(`${HUB_URL}/chat/clear`, {
 
 ---
 
-## Local Memory
+## Getting Started
 
-The Hub supports per-project system instructions via a **`GEMINI.md`** file.
+### Prerequisites
 
-Place a `GEMINI.md` file in the root of any project directory. When the Hub initializes a session for that folder, it reads the file and injects its contents as the model's system instruction.
+| Requirement | Version | Notes |
+|---|---|---|
+| **Node.js** | >= 18.17.0 | LTS recommended |
+| **Gemini CLI** | Latest | [Installation guide](https://geminicli.com/docs/get-started/installation/) |
+| **Google Account** | — | For the OAuth handshake |
+
+### 1. Authenticate with Google
+
+Run the login command to cache your OAuth credentials locally:
+
+```bash
+gemini login
+```
+
+See: [Gemini CLI Authentication](https://geminicli.com/docs/get-started/authentication/)
+
+### 2. Authorize the Hub Directory
+
+The Gemini CLI requires explicit trust for every folder it reads:
+
+```bash
+cd /path/to/gemini-local
+gemini "hello"
+```
+
+When prompted — *"Do you trust this folder?"* — select **Yes**. This writes the path to `~/.gemini/trustedFolders.json`.
+
+### 3. Install & Launch
+
+```bash
+npm install
+npm run dev
+```
+
+The Hub is now running at [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Architecture
+
+### The Folder-as-Key Registry
+
+The Hub's core abstraction is the **ClientRegistry** (`lib/registry.ts`), a global singleton that maps each project directory to a fully initialized `GeminiClient` session.
 
 ```
-my-project/
-├── GEMINI.md    ← "You are a senior engineer working on..."
-├── src/
-└── package.json
+┌──────────────────────────────────────────────────┐
+│                  ClientRegistry                  │
+│                                                  │
+│  "/Users/you/project-a:ab3f01c2" → Session A     │
+│  "/Users/you/project-b:7e9d44a1" → Session B     │
+│  "/Users/you/project-c:c1f8e003" → Session C     │
+│                                                  │
+│  Key = resolved folder path + stable hash        │
+│  Value = { GeminiClient, Config, initialized }   │
+└──────────────────────────────────────────────────┘
 ```
 
-- If `GEMINI.md` is present, its full text is loaded via `config.setUserMemory()`.
-- If `GEMINI.md` is absent, the session initializes without project-specific context (a warning is logged).
-- The file is read once at session init. To reload, call `/api/chat/clear` and send a new prompt.
+- **Stable identity**: Each folder path is hashed via `scrypt` to produce a deterministic session ID.
+- **Lazy initialization**: Sessions are created on first request and cached for the process lifetime.
+- **Concurrency-safe**: A per-key promise lock prevents duplicate initialization when parallel requests target the same folder.
+
+### Authentication
+
+The Hub leverages the Gemini CLI's **`oauth-personal`** flow. No API key required — the server calls `config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE)` at session init, reusing the OAuth token cached by `gemini login`.
 
 ---
 
@@ -334,27 +247,17 @@ my-project/
 
 ### Smoke Test
 
-The Hub ships with an integration smoke test that validates the full lifecycle — health check, session warm-up, memory injection, ghost folder rejection, session clearing, and multi-image stitching.
-
-**1. Start the Hub in one terminal:**
+Validates the full lifecycle — health check, session warm-up, memory injection, ghost folder rejection, session clearing, and multi-image stitching.
 
 ```bash
+# Terminal 1
 npm run dev
-```
 
-**2. Run the smoke test in another terminal:**
-
-```bash
+# Terminal 2
 npm run test:smoke
 ```
 
-Or directly:
-
-```bash
-./scripts/smoke-test.sh
-```
-
-The script creates a temporary sandbox directory with its own `GEMINI.md`, exercises all four API endpoints, and cleans up on exit. Override the Hub URL with the `HUB_URL` environment variable:
+Override the Hub URL:
 
 ```bash
 HUB_URL=http://localhost:4000/api npm run test:smoke
@@ -371,6 +274,16 @@ npm run test:integration
 ```bash
 npm run lint
 ```
+
+---
+
+## Technical Context
+
+| Document | Purpose |
+|---|---|
+| [`DECISIONS.md`](./DECISIONS.md) | Architecture Decision Records (ADRs). Covers the monorepo structure, client registry design, image stitching strategy, and folder trust governance lifecycle. |
+| [`CHANGELOG.md`](./CHANGELOG.md) | Versioned record of features, migrations, and behavioral changes. Includes the trusted-folders schema migration and self-healing logic. |
+| [`GEMINI.md`](./GEMINI.md) | Project context and system prompt rules. The canonical reference for coding patterns, constraints, and the AI agent's operating contract. |
 
 ---
 
