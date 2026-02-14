@@ -17,3 +17,9 @@
 - **Context:** The underlying Gemini API and model behavior can be inconsistent when handling multiple independent image attachments.
 - **Decision:** Use the `sharp` library to stitch multiple input images into a single horizontal composite PNG before transmission.
 - **Consequences:** Ensures high-fidelity text readability and consistent model analysis; bypasses single-image constraints while maintaining visual context.
+
+## ADR-004: Folder Trust & Governance Lifecycle
+- **Status:** Accepted
+- **Context:** To ensure security and prevent unauthorized session initialization across the filesystem, the system needs a mechanism to track and validate "trusted" project directories before the CLI process is spawned.
+- **Decision:** Introduce a persistent `trustedFolders.json` registry (managed via `lib/folders.ts`) that stores an object map of authorized paths. All project registrations must pass an existence check and follow an auto-trust policy.
+- **Consequences:** Provides a security layer against arbitrary filesystem access; enables the UI to display a managed list of active/available projects; transitions the system from simple session management to a governed project lifecycle.

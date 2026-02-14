@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-02-14
+- Implement Chat Playground and Project Registry Dashboard for UI-based session management.
+- Implement folder registration, listing, and unregistration API endpoints.
+- Introduce persistent "Trusted Folders" registry with auto-trust policy and existence validation.
+- Migrate trusted folder storage to a map-based format with self-healing legacy support.
+- Add support for horizontal multi-image stitching in the frontend playground.
+- Enhance smoke test suite to verify project governance and trust lifecycle.
+
 ## [Unreleased] - 2026-02-13
 - Implement client registry for managing persistent, stateful project sessions.
 - Add session clearing functionality and refined registry purging logic.
