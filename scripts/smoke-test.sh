@@ -189,6 +189,29 @@ else
   exit 1
 fi
 
+# Step B-2: Negative Test — reject a nonexistent directory
+BOGUS_PATH="/tmp/definitely-not-a-folder-123"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/registry/add" \
+     -H "Content-Type: application/json" \
+     -d "{\"folderPath\": \"$BOGUS_PATH\"}")
+if [ "$HTTP_CODE" -eq 400 ]; then
+  green "  PASS (B-2a): Nonexistent folder correctly rejected with 400"
+else
+  red "  FAIL (B-2a): Expected 400 for nonexistent folder, got HTTP $HTTP_CODE"
+  exit 1
+fi
+
+# Verify the bogus path was NOT added to the registry
+LIST_RESPONSE=$(curl -s "$HUB_URL/registry/list")
+FOUND=$(echo "$LIST_RESPONSE" | jq --arg p "$BOGUS_PATH" '[.folders[] | select(.path == $p)] | length')
+if [ "$FOUND" -eq 0 ]; then
+  green "  PASS (B-2b): Nonexistent folder not present in registry"
+else
+  red "  FAIL (B-2b): Nonexistent folder was added to registry despite 400!"
+  curl -s -X POST "$HUB_URL/registry/unregister" -H "Content-Type: application/json" -d "{\"folderPath\": \"$BOGUS_PATH\"}" > /dev/null
+  exit 1
+fi
+
 # Step C: Verify Trust — folder must be present with isReady: false
 LIST_RESPONSE=$(curl -s "$HUB_URL/registry/list")
 IS_READY=$(echo "$LIST_RESPONSE" | jq --arg p "$GOVERNANCE_PROJECT" '[.folders[] | select(.path == $p)][0].isReady')

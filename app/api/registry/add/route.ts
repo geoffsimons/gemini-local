@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { addTrustedFolder } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import path from "path";
+import fs from "node:fs";
 
 const logger = createLogger('Hub/API/Registry');
 
@@ -19,6 +20,15 @@ export async function POST(req: NextRequest) {
     }
 
     const resolvedPath = path.resolve(folderPath);
+
+    // Existence check — refuse to trust a directory that doesn't exist on disk
+    if (!fs.existsSync(resolvedPath)) {
+      logger.warn('Rejected trust request for nonexistent directory', { folder: resolvedPath });
+      return NextResponse.json(
+        { error: `Cannot trust a nonexistent directory: ${resolvedPath}` },
+        { status: 400 },
+      );
+    }
 
     await addTrustedFolder(resolvedPath);
 
