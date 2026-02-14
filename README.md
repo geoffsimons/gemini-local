@@ -1,18 +1,38 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
+🛠 Prerequisites & Initial Setup
+Add this section to your README.md to establish the "Golden Path" for new users.
 
-First, run the development server:
+Setup & Authorization
+Before starting the Gemini Local server, you must ensure your environment is authenticated and the project directory is trusted by the Gemini CLI.
 
-```bash
+1. Install the Gemini CLI
+If you haven't already, install the core CLI globally:
+https://geminicli.com/docs/get-started/installation/
+
+2. Authenticate with Google
+Run the login command to perform the OAuth handshake:
+https://geminicli.com/docs/get-started/authentication/
+
+3. Authorize the Project Directory
+The Gemini CLI uses a security model that requires explicit trust for every folder it interacts with. To authorize this project root:
+
+Open your terminal in the gemini-local root directory.
+
+Run a simple test command:
+gemini "hello"
+
+When prompted: "Do you trust this folder and allow Gemini to read its contents?", select Yes.
+
+Note: This adds the project path to your global trusted folders list at ~/.gemini/trustedFolders.json.
+
+4. Configure Local Memory
+Ensure there is a GEMINI.md file in your project root. This file acts as the persistent "System Instruction" for the model when running in this specific directory.
+
+5. Launch the Dashboard
+Once the folder is trusted, you can start the development server:
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
