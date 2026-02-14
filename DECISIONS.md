@@ -10,7 +10,7 @@
 - **Status:** Accepted
 - **Context:** The Gemini CLI requires a persistent process to maintain conversation state, but HTTP is stateless.
 - **Decision:** Implement a centralized `Registry` to manage and cache `GeminiClient` instances, keyed by the target project directory.
-- **Consequences:** Enables multi-turn conversations across separate HTTP requests; requires proactive management of race conditions during concurrent session initialization.
+- **Consequences:** Enables multi-turn conversations across separate HTTP requests; requires proactive management of race conditions during concurrent session initialization. Enables a "Warm Session" pattern that eliminates OAuth handshake and discovery latency for recurring requests (e.g., commit scripts).
 
 ## ADR-003: Server-Side Image Composite (Stitching)
 - **Status:** Accepted
@@ -21,5 +21,11 @@
 ## ADR-004: Folder Trust & Governance Lifecycle
 - **Status:** Accepted
 - **Context:** To ensure security and prevent unauthorized session initialization across the filesystem, the system needs a mechanism to track and validate "trusted" project directories before the CLI process is spawned.
-- **Decision:** Introduce a persistent `trustedFolders.json` registry (managed via `lib/folders.ts`) that stores an object map of authorized paths. All project registrations must pass an existence check and follow an auto-trust policy.
-- **Consequences:** Provides a security layer against arbitrary filesystem access; enables the UI to display a managed list of active/available projects; transitions the system from simple session management to a governed project lifecycle.
+- **Decision:** Introduce a persistent `trustedFolders.json` registry (managed via `lib/folders.ts`) that stores an object map of authorized paths. All project registrations must pass an existence check and follow an auto-trust policy. Implement a "Verify Before Trust" guardrail that strictly validates the physical existence of a directory before adding it to the persistent registry.
+- **Consequences:** Provides a security layer against arbitrary filesystem access; enables the UI to display a managed list of active/available projects; transitions the system from simple session management to a governed project lifecycle. Prevents "Ghost Trusts" and registry pollution from invalid or deleted project paths.
+
+## ADR-005: Universal Shell Compatibility
+- **Status:** Accepted
+- **Context:** The Hub's integration scripts need to operate across diverse developer environments (macOS, Linux, WSL).
+- **Decision:** Target Bash 4+ as the primary scripting language for all examples and internal utilities while maintaining Zsh compatibility.
+- **Consequences:** Ensures cross-platform portability for project-onboarding and automation scripts; requires avoiding Zsh-specific syntax (like `read -k`).
