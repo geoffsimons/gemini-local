@@ -6,6 +6,55 @@ Built on Next.js and the [`@google/gemini-cli-core`](https://www.npmjs.com/packa
 
 ---
 
+## Why
+
+Running `gemini` directly from the command line starts a fresh process every time. Each invocation pays the full cost: authentication, model initialization, memory loading, and session setup. That overhead adds up fast when you have scripts that call Gemini repeatedly — like a commit message generator that runs on every commit.
+
+The Hub eliminates that cost by keeping **warm sessions** alive in memory:
+
+- **Centralized state.** One long-lived process manages all your Gemini sessions. No per-invocation startup penalty.
+- **Cross-project memory.** Each project gets its own session with its own `GEMINI.md` system instruction, but they all share a single authenticated process.
+- **Faster execution.** Local scripts (like `scripts/commit.sh`) that pipe prompts through the Hub skip the 5–10 second cold-start entirely. The session is already warm — the prompt goes straight to the model.
+
+---
+
+## Connecting a Project
+
+The recommended way to bootstrap any project into the Hub is the `examples/connect.sh` script. It performs a full handshake — health check, registration, and session warm-up — in a single command.
+
+**From any project directory:**
+
+```bash
+bash /path/to/gemini-local/examples/connect.sh
+```
+
+Or copy it into your project and run it locally:
+
+```bash
+cp /path/to/gemini-local/examples/connect.sh ./connect.sh
+chmod +x connect.sh
+./connect.sh
+```
+
+**What it does:**
+
+1. **Discovery** — Resolves the current directory to an absolute path.
+2. **Health check** — Verifies the Hub is running at `$GEMINI_HUB_URL` (default: `http://localhost:3000`).
+3. **Registration** — Calls `POST /api/chat/start` to register the folder and warm up its session.
+4. **Validation** — Confirms the Hub accepted the project and is ready for prompts.
+
+After `connect.sh` completes, the session is warm. Any subsequent call — whether from the Chat Playground, a `curl` command, or a script like `commit.sh` — hits the model immediately with zero initialization delay.
+
+**Override the Hub URL:**
+
+```bash
+GEMINI_HUB_URL=http://localhost:4000 ./connect.sh
+```
+
+**Requirements:** `curl`, `jq`
+
+---
+
 ## Mission Control
 
 The root path (`/`) serves a split-pane **Hub Console** for monitoring and testing:
@@ -92,9 +141,19 @@ The on-disk schema is an **Object Key-Value map** — `Record<string, "TRUST_FOL
 
 ## Client Integration Guide
 
-Use the Hub as a backend from any TypeScript or JavaScript project. The following `askHub` utility wraps `/api/chat/prompt` into a single async call:
+Use the Hub as a backend from any TypeScript or JavaScript project.
+
+### Bootstrapping
+
+The fastest way to connect a new project is the `connect.sh` script described above. Run it once from the project root to register the folder and warm up its session. After that, you can call the Hub directly from code.
+
+### The `askHub` Utility
+
+The following utility wraps `/api/chat/prompt` into a single async call. It resolves `folderPath` to an absolute path before sending, ensuring correct behavior regardless of how the caller specifies the path.
 
 ```typescript
+import path from "node:path";
+
 const HUB_URL = process.env.HUB_URL ?? "http://localhost:3000/api";
 
 interface ImagePayload {
@@ -113,10 +172,12 @@ async function askHub(
   message: string,
   images?: ImagePayload[],
 ): Promise<string> {
+  const resolvedPath = path.resolve(folderPath);
+
   const res = await fetch(`${HUB_URL}/chat/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folderPath, message, images }),
+    body: JSON.stringify({ folderPath: resolvedPath, message, images }),
   });
 
   const data: HubResponse = await res.json();
@@ -132,10 +193,10 @@ async function askHub(
 **Usage:**
 
 ```typescript
-// Text-only prompt
-const answer = await askHub("/Users/you/my-project", "Summarize this repo.");
+// Text-only prompt — relative paths are resolved automatically
+const answer = await askHub(".", "Summarize this repo.");
 
-// Multimodal prompt — the Hub stitches multiple images automatically
+// Absolute path works too
 const analysis = await askHub(
   "/Users/you/my-project",
   "Compare these two screenshots.",
@@ -212,6 +273,16 @@ npm run dev
 
 The Hub is now running at [http://localhost:3000](http://localhost:3000).
 
+### 4. Connect Your First Project
+
+From any project directory you want to work with:
+
+```bash
+bash /path/to/gemini-local/examples/connect.sh
+```
+
+The script registers the folder, warms up the session, and confirms readiness. You are now ready to send prompts.
+
 ---
 
 ## Architecture
@@ -236,6 +307,18 @@ The Hub's core abstraction is the **ClientRegistry** (`lib/registry.ts`), a glob
 - **Stable identity**: Each folder path is hashed via `scrypt` to produce a deterministic session ID.
 - **Lazy initialization**: Sessions are created on first request and cached for the process lifetime.
 - **Concurrency-safe**: A per-key promise lock prevents duplicate initialization when parallel requests target the same folder.
+
+### Warm Sessions & Script Performance
+
+When the Hub is running, every registered project has a warm session ready to accept prompts. This is the key performance advantage over invoking `gemini` directly:
+
+| Workflow | Cold (direct CLI) | Warm (via Hub) |
+|---|---|---|
+| `commit.sh` generates a message | ~5–10s startup + prompt | Prompt only (instant) |
+| CI script analyzes a diff | New process per call | Reuses cached session |
+| Multi-project batch job | N startups for N projects | All sessions pre-warmed |
+
+Scripts like `scripts/commit.sh` pipe their prompt through the local Gemini CLI. By keeping the Hub running and sessions warm, any tooling that calls the Hub's API bypasses the initialization overhead entirely.
 
 ### Authentication
 

@@ -11,7 +11,7 @@ async function runRegistryTest() {
   console.log("\n[TEST 1] Lazy Creation");
   const sessionA1 = await registry.getSession(projectA);
   const sessionB = await registry.getSession(projectB);
-  
+
   console.log(`✅ Created session for Project A: ${projectA}`);
   console.log(`✅ Created session for Project B: ${projectB}`);
   console.log(`Session A Ready: ${registry.isReady(projectA)} (Expected: false)`);

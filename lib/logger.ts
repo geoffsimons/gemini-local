@@ -7,10 +7,10 @@ class Logger {
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0]; // HH:mm:ss
     const color = this.getColor(level);
     const reset = "\x1b[0m";
-    
+
     // Format: [14:30:05] [DEBUG] [Hub/Registry] Your message here
     const prefix = `[${timestamp}] ${color}[${level}]${reset} [${this.context}]`;
-    
+
     if (data) {
       console.log(`${prefix} ${message}`, data);
     } else {

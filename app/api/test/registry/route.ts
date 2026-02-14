@@ -8,7 +8,7 @@ export async function GET() {
 
   try {
     const projectA = path.resolve("./"); // Use the hub root as a test path
-    
+
     log("🚀 Starting Registry Internal Validation...");
 
     // Test 1: Lazy Creation
