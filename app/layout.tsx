@@ -4,6 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Gemini Local Hub",
   description: "Local-first HTTP bridge for Google Gemini CLI",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
