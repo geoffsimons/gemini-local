@@ -25,11 +25,15 @@ generate_commit_message() {
     local diff_content
     diff_content="$(git diff --cached)"
     local hint_content="$1"
-    local prompt="Generate a professional git commit message in Conventional Commits style.
-Focus on the architectural intent and functional requirements. [cite: 2026-02-08]
 
-Title: <type>(<scope>): <subject> (lowercase, no period)
-Body: Concise bulleted list of 'why' and 'how'.
+    # STRICT PROMPT: No markdown, no conversational filler.
+    local prompt="Task: Generate a professional git commit message in Conventional Commits style.
+STRICT RULE: Output ONLY the plain text of the commit message. Do NOT use markdown code blocks (\`\`\`). Do NOT include any conversational text.
+
+Structure:
+<type>(<scope>): <subject> (lowercase, no period)
+<blank line>
+Concise bulleted list explaining the 'why' and 'how'.
 
 Diff:
 $diff_content"
@@ -40,12 +44,12 @@ $diff_content"
 User Hint: ${hint_content}"
     fi
 
-    # API Request to Hub
+    # API Request to Hub with EPHEMERAL flag to prevent context pollution
     local PAYLOAD
     PAYLOAD=$(jq -n \
       --arg fp "$PROJECT_PATH" \
       --arg msg "$prompt" \
-      '{folderPath: $fp, message: $msg}')
+      '{folderPath: $fp, message: $msg, ephemeral: true}')
 
     local response
     response=$(curl -s -X POST "$HUB_URL" \
@@ -57,7 +61,7 @@ User Hint: ${hint_content}"
 
 HINT=""
 while true; do
-    echo "🤖 Generating commit message via Gemini Hub..."
+    echo "🤖 Generating commit message via Gemini Hub (Isolated Context)..."
     PROPOSED_MESSAGE="$(generate_commit_message "$HINT")"
 
     if [[ -z "$PROPOSED_MESSAGE" || "$PROPOSED_MESSAGE" == "null" ]]; then
