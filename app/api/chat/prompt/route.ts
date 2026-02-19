@@ -49,6 +49,8 @@ function buildPromptParts(
     parts.push({ text: finalMessage });
   }
 
+  logger.debug('Final message', { finalMessage });
+
   return parts;
 }
 
