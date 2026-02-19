@@ -53,8 +53,8 @@ class ClientRegistry {
     return session;
   }
 
-  public async initializeSession(folderPath: string): Promise<void> {
-    const sessionId = this.generateStableId(folderPath);
+  public async initializeSession(folderPath: string, customSessionId?: string): Promise<void> {
+    const sessionId = customSessionId || this.generateStableId(folderPath);
     const registryKey = `${folderPath}:${sessionId}`;
     const session = this.sessions.get(registryKey);
 
@@ -109,6 +109,15 @@ class ClientRegistry {
 
     this.pendingInits.set(registryKey, initPromise);
     await initPromise;
+  }
+
+  public async resetSessionHistory(folderPath: string, sessionId?: string): Promise<void> {
+    const session = await this.getSession(folderPath, sessionId);
+    log.info('Ephemeral reset: issuing clear command', { folder: folderPath });
+
+    // programmatically issue a "/clear" command to the underlying CLI engine
+    // to isolate the next prompt from previous context
+    await session.client.resetChat();
   }
 
   public async clearSession(folderPath: string, sessionId?: string): Promise<void> {

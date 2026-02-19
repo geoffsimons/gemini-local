@@ -59,11 +59,12 @@ function buildPromptParts(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { folderPath, sessionId, message, images } = body as {
+    const { folderPath, sessionId, message, images, ephemeral } = body as {
       folderPath: string;
       sessionId?: string;
       message?: string;
       images?: ImagePayload[];
+      ephemeral?: boolean;
     };
 
     if (!folderPath) {
@@ -75,15 +76,20 @@ export async function POST(req: NextRequest) {
 
     // Resolve to an absolute path
     const resolvedPath = path.resolve(folderPath);
-    logger.info('Prompt received', { folder: resolvedPath, sessionId });
+    logger.info('Prompt received', { folder: resolvedPath, sessionId, ephemeral });
 
     // Ensure the session exists in the registry
-    const session = await registry.getSession(resolvedPath);
+    const session = await registry.getSession(resolvedPath, sessionId);
 
     // Initialise on first use (Golden Copy sequence)
     if (!session.initialized) {
       logger.info('Session not ready — initializing', { folder: resolvedPath });
-      await registry.initializeSession(resolvedPath);
+      await registry.initializeSession(resolvedPath, sessionId);
+    }
+
+    // Ephemeral Mode: clear history before processing if requested
+    if (ephemeral) {
+      await registry.resetSessionHistory(resolvedPath, sessionId);
     }
 
     // --- Image pre-processing (stitching) ---
