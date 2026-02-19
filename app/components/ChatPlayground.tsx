@@ -77,6 +77,13 @@ export default function ChatPlayground({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Auto-focus textarea when sending finishes
+  useEffect(() => {
+    if (!sending && activeFolder) {
+      textareaRef.current?.focus();
+    }
+  }, [sending, activeFolder]);
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -159,7 +166,7 @@ export default function ChatPlayground({
   // ---------------------------------------------------------------------------
 
   const handleSend = useCallback(async () => {
-    if (!activeFolder) return;
+    if (!activeFolder || sending) return;
     if (!input.trim() && images.length === 0) return;
 
     const imagePayloads = images.map((img) => ({
@@ -176,11 +183,11 @@ export default function ChatPlayground({
       text,
       imagePayloads.length > 0 ? imagePayloads : undefined,
     );
-  }, [activeFolder, input, images, onSendMessage]);
+  }, [activeFolder, input, images, sending, onSendMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         handleSend();
       }
