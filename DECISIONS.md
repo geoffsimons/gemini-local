@@ -29,3 +29,9 @@
 - **Context:** The Hub's integration scripts need to operate across diverse developer environments (macOS, Linux, WSL).
 - **Decision:** Target Bash 4+ as the primary scripting language for all examples and internal utilities while maintaining Zsh compatibility.
 - **Consequences:** Ensures cross-platform portability for project-onboarding and automation scripts; requires avoiding Zsh-specific syntax (like `read -k`).
+
+## ADR-006: Ephemeral Sessions and Custom Identifiers
+- **Status:** Accepted
+- **Context:** Automated tools (e.g., commit message generators) require short-lived, isolated execution contexts that should not interfere with the user's primary persistent chat history.
+- **Decision:** Implement an `ephemeral` flag and support for custom `sessionId` strings in the chat API. Ephemeral sessions bypass the persistent registry and are intended for one-off tasks.
+- **Consequences:** Enables stateless, automated interactions; prevents background tasks from polluting user-facing chat history; allows for concurrent session isolation within the same project directory.
