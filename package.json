@@ -35,7 +35,8 @@
     "test:smoke": "./scripts/smoke-test.sh"
   },
   "dependencies": {
-    "@google/gemini-cli-core": "^0.28.2",
+    "@google/gemini-cli": "^0.29.5",
+    "@google/gemini-cli-core": "^0.29.5",
     "clsx": "^2.1.1",
     "lucide-react": "^0.564.0",
     "next": "16.1.6",
@@ -56,5 +57,9 @@
   },
   "engines": {
     "node": ">=18.17.0"
+  },
+  "overrides": {
+    "ajv": "^8.18.0",
+    "minimatch": "^10.2.1"
   }
 }

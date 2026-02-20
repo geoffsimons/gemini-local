@@ -15,7 +15,12 @@
     "disableYoloMode": false,
     "folderTrust": {
       "enabled": true,
-      "trustedFolders": ["."]
+      "trustedFolders": [
+        "."
+      ]
     }
+  },
+  "general": {
+    "defaultApprovalMode": "auto_edit"
   }
 }
