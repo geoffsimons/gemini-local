@@ -10,8 +10,11 @@ import {
   Loader2,
   Bot,
   User,
+  Check,
+  XCircle,
+  Wrench,
 } from "lucide-react";
-import type { ChatMessage, FolderEntry } from "@/lib/hub-state";
+import type { ChatMessage, FolderEntry, PendingToolCall } from "@/lib/hub-state";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +42,9 @@ interface ChatPlaygroundProps {
   onAddSystemMessage: (text: string) => void;
   thinkingState: string | null;
   activeModel: string | null;
+  pendingToolCall: PendingToolCall | null;
+  onApproveToolCall: () => void;
+  onRejectToolCall: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +73,9 @@ export default function ChatPlayground({
   onAddSystemMessage,
   thinkingState,
   activeModel,
+  pendingToolCall,
+  onApproveToolCall,
+  onRejectToolCall,
 }: ChatPlaygroundProps) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -237,7 +246,7 @@ export default function ChatPlayground({
   // ---------------------------------------------------------------------------
 
   const handleSend = useCallback(async () => {
-    if (sending || thinkingState || !input.trim()) return;
+    if (sending || thinkingState || pendingToolCall || !input.trim()) return;
     if (!activeFolder) return;
 
     const imagePayloads = images.map((img) => ({
@@ -254,7 +263,7 @@ export default function ChatPlayground({
       text,
       imagePayloads.length > 0 ? imagePayloads : undefined,
     );
-  }, [activeFolder, input, images, sending, thinkingState, onSendMessage]);
+  }, [activeFolder, input, images, sending, thinkingState, pendingToolCall, onSendMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -380,6 +389,38 @@ export default function ChatPlayground({
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
+            {pendingToolCall && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <div className="mb-2 flex items-center gap-2 font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  <Wrench size={14} />
+                  Action Required
+                </div>
+                <p className="mb-2 font-mono text-[11px] text-text-secondary">
+                  Tool: <span className="font-semibold text-text-primary">{pendingToolCall.tool_name}</span>
+                </p>
+                <pre className="mb-3 max-h-24 overflow-y-auto rounded bg-surface-2 px-2 py-1.5 font-mono text-[10px] text-text-muted">
+                  {JSON.stringify(pendingToolCall.parameters, null, 2)}
+                </pre>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onApproveToolCall}
+                    className="flex items-center gap-1.5 rounded bg-accent px-2.5 py-1.5 font-mono text-[11px] text-white transition-colors hover:bg-accent-hover"
+                  >
+                    <Check size={12} />
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onRejectToolCall}
+                    className="flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary transition-colors hover:bg-surface-3"
+                  >
+                    <XCircle size={12} />
+                    Reject
+                  </button>
+                </div>
+              </div>
+            )}
             {thinkingState && (
               <div className="flex items-center gap-2 py-1.5 font-mono text-[11px] text-text-muted">
                 <Loader2 size={12} className="shrink-0 animate-spin text-accent/80" />
@@ -459,7 +500,7 @@ export default function ChatPlayground({
                 ? "Send a message... (Shift+Enter for newline)"
                 : "Select a project first"
             }
-            disabled={!activeFolder || sending || !!thinkingState}
+            disabled={!activeFolder || sending || !!thinkingState || !!pendingToolCall}
             rows={1}
             className="flex-1 resize-none rounded border border-border bg-surface-2 px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-accent disabled:opacity-50"
           />
@@ -502,6 +543,7 @@ export default function ChatPlayground({
               !activeFolder ||
               sending ||
               !!thinkingState ||
+              !!pendingToolCall ||
               (!input.trim() && images.length === 0)
             }
             className="mb-0.5 rounded bg-accent p-2 text-white transition-colors hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"

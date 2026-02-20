@@ -17,6 +17,14 @@ export interface RegistryListResponse {
   folders: Array<{ path: string; isReady: boolean }>;
 }
 
+/** Tool call awaiting user approval (matches stream TOOL_USE event). */
+export interface PendingToolCall {
+  type: "TOOL_USE";
+  tool_name: string;
+  parameters: Record<string, unknown>;
+  tool_id?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Hook: useRegistry — Manages the folder list + active selection
 // ---------------------------------------------------------------------------
@@ -141,6 +149,8 @@ export function useChat() {
   const [sending, setSending] = useState(false);
   const [thinkingState, setThinkingState] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
+  const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
+  const [yoloMode, setYoloModeState] = useState(false);
   const idCounter = useRef(0);
 
   const sendMessage = useCallback(
@@ -161,6 +171,7 @@ export function useChat() {
       setMessages((prev) => [...prev, userMsg]);
       setSending(true);
       setThinkingState(null);
+      setPendingToolCall(null);
 
       try {
         const res = await fetch("/api/chat/prompt", {
@@ -210,6 +221,7 @@ export function useChat() {
                 type: string;
                 model?: string;
                 tool_name?: string;
+                tool_id?: string;
                 parameters?: Record<string, unknown>;
                 content?: string;
                 delta?: boolean;
@@ -221,6 +233,12 @@ export function useChat() {
                   if (event.model) setActiveModel(event.model);
                   break;
                 case "TOOL_USE": {
+                  setPendingToolCall({
+                    type: "TOOL_USE",
+                    tool_name: event.tool_name ?? "tool",
+                    parameters: event.parameters ?? {},
+                    ...(event.tool_id && { tool_id: event.tool_id }),
+                  });
                   const params = event.parameters ?? {};
                   const pathVal = typeof params.path === "string" ? params.path : undefined;
                   const label = pathVal ? `Reading ${pathVal}` : `Using ${event.tool_name ?? "tool"}`;
@@ -294,6 +312,51 @@ export function useChat() {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
+  const fetchChatConfig = useCallback(async (folderPath: string, sessionId?: string) => {
+    try {
+      const params = new URLSearchParams({ folderPath });
+      if (sessionId) params.set("sessionId", sessionId);
+      const res = await fetch(`/api/chat/config?${params}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { yoloMode: boolean };
+      setYoloModeState(Boolean(data.yoloMode));
+    } catch {
+      setYoloModeState(false);
+    }
+  }, []);
+
+  const setYoloMode = useCallback(
+    async (folderPath: string, value: boolean, sessionId?: string) => {
+      try {
+        const res = await fetch("/api/chat/config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderPath, sessionId, yoloMode: value }),
+        });
+        if (res.ok) setYoloModeState(value);
+      } catch {
+        // no-op
+      }
+    },
+    [],
+  );
+
+  const clearPendingToolCall = useCallback(() => {
+    setPendingToolCall(null);
+  }, []);
+
+  const onApproveToolCall = useCallback(() => {
+    setPendingToolCall(null);
+    setThinkingState(null);
+    addSystemMessage("Tool call approved. Execution not yet implemented.");
+  }, [addSystemMessage]);
+
+  const onRejectToolCall = useCallback(() => {
+    setPendingToolCall(null);
+    setThinkingState(null);
+    addSystemMessage("Tool call rejected by user.");
+  }, [addSystemMessage]);
+
   return {
     messages,
     sending,
@@ -302,5 +365,12 @@ export function useChat() {
     addSystemMessage,
     thinkingState,
     activeModel,
+    pendingToolCall,
+    clearPendingToolCall,
+    onApproveToolCall,
+    onRejectToolCall,
+    yoloMode,
+    setYoloMode,
+    fetchChatConfig,
   };
 }

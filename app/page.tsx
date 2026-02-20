@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import { useRegistry, useChat } from "@/lib/hub-state";
 import ProjectList from "@/app/components/ProjectList";
 import ChatPlayground from "@/app/components/ChatPlayground";
-import { Terminal } from "lucide-react";
+import { Terminal, Zap } from "lucide-react";
+import { clsx } from "clsx";
 
 export default function HubConsole() {
   const {
@@ -26,6 +27,12 @@ export default function HubConsole() {
     addSystemMessage,
     thinkingState,
     activeModel,
+    pendingToolCall,
+    onApproveToolCall,
+    onRejectToolCall,
+    yoloMode,
+    setYoloMode,
+    fetchChatConfig,
   } = useChat();
 
   const hasInitialized = useRef(false);
@@ -37,6 +44,16 @@ export default function HubConsole() {
       fetchFolders();
     }
   }, [fetchFolders]);
+
+  // Sync YOLO mode from backend when active folder changes
+  useEffect(() => {
+    if (activeFolder) fetchChatConfig(activeFolder);
+  }, [activeFolder, fetchChatConfig]);
+
+  const handleYoloToggle = () => {
+    if (!activeFolder) return;
+    setYoloMode(activeFolder, !yoloMode);
+  };
 
   return (
     <div className="flex h-screen flex-col">
@@ -50,6 +67,22 @@ export default function HubConsole() {
           Hub Console
         </span>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={handleYoloToggle}
+          disabled={!activeFolder}
+          title={activeFolder ? (yoloMode ? "YOLO mode: on (tools auto-run)" : "YOLO mode: off (approve tools)") : "Select a project to toggle"}
+          className={clsx(
+            "flex items-center gap-1.5 rounded px-2 py-1 font-mono text-[11px] transition-colors",
+            yoloMode
+              ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+              : "text-text-muted hover:bg-surface-2 hover:text-text-secondary",
+            !activeFolder && "cursor-not-allowed opacity-50",
+          )}
+        >
+          <Zap size={12} />
+          YOLO
+        </button>
         <span className="font-mono text-[10px] text-text-muted">
           v1.0.0
         </span>
@@ -84,6 +117,9 @@ export default function HubConsole() {
             onAddSystemMessage={addSystemMessage}
             thinkingState={thinkingState}
             activeModel={activeModel}
+            pendingToolCall={pendingToolCall}
+            onApproveToolCall={onApproveToolCall}
+            onRejectToolCall={onRejectToolCall}
           />
         </div>
       </div>

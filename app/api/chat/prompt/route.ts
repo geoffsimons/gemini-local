@@ -180,14 +180,21 @@ export async function POST(req: NextRequest) {
                   }
                   break;
 
-                case JsonStreamEventType.TOOL_USE:
-                  logger.info('Tool use detected', { tool: (event as any).tool_name });
-                  sendEvent({
-                    type: 'TOOL_USE',
-                    tool_name: (event as any).tool_name,
-                    parameters: (event as any).parameters ?? {},
-                  });
+                case JsonStreamEventType.TOOL_USE: {
+                  const toolEvent = event as { tool_name: string; parameters?: Record<string, unknown>; tool_id?: string };
+                  if (!session.yoloMode) {
+                    sendEvent({
+                      type: 'TOOL_USE',
+                      tool_name: toolEvent.tool_name,
+                      parameters: toolEvent.parameters ?? {},
+                      ...(toolEvent.tool_id && { tool_id: toolEvent.tool_id }),
+                    });
+                    controller.close();
+                    return;
+                  }
+                  logger.info('[Agent] Auto-executing tool: %s', toolEvent.tool_name);
                   break;
+                }
 
                 case JsonStreamEventType.ERROR:
                   logger.error('Stream error from model', { error: (event as any).message });
@@ -231,6 +238,18 @@ export async function POST(req: NextRequest) {
         });
 
         for await (const event of stream) {
+          if (event.type === JsonStreamEventType.TOOL_USE) {
+            const toolEvent = event as { tool_name: string };
+            if (!session.yoloMode) {
+              rollbackUserTurn();
+              return NextResponse.json(
+                { error: 'Tool approval required', code: 'TOOL_APPROVAL_REQUIRED', hint: 'Use streaming (stream: true or Accept: text/event-stream) for tool flows.' },
+                { status: 409 }
+              );
+            }
+            logger.info('[Agent] Auto-executing tool: %s', toolEvent.tool_name);
+            continue;
+          }
           if (event.type === JsonStreamEventType.MESSAGE) {
             responseText += (event as any).content || '';
           } else if (event.type === JsonStreamEventType.ERROR) {

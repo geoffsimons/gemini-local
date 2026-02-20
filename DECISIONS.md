@@ -35,3 +35,9 @@
 - **Context:** Automated tools (e.g., commit message generators) require short-lived, isolated execution contexts that should not interfere with the user's primary persistent chat history.
 - **Decision:** Implement an `ephemeral` flag and support for custom `sessionId` strings in the chat API. Ephemeral sessions bypass the persistent registry and are intended for one-off tasks.
 - **Consequences:** Enables stateless, automated interactions; prevents background tasks from polluting user-facing chat history; allows for concurrent session isolation within the same project directory.
+
+## ADR-007: Tool Execution State Machine and YOLO Mode
+- **Status:** Accepted
+- **Context:** The agent can request tool execution; we need a clear state machine that supports both manual UI approval and automated (YOLO) execution driven by project or user preference.
+- **Decision:** Support two modes: manual approval (stream yields `TOOL_USE` then terminates so the UI can show an "Action Required" card with Approve/Reject) and YOLO (tools are auto-executed; execution logic integrated in a later phase). Initial `yoloMode` is read from the project's `.gemini/settings.json` (`security.disableYoloMode`); a runtime toggle is exposed via `/api/chat/config` (GET/PATCH) and a header switch in the UI.
+- **Consequences:** Session type gains `yoloMode`; prompt route intercepts `TOOL_USE` and branches; frontend holds `pendingToolCall` and syncs `yoloMode` with the backend. Tool execution itself is stubbed in YOLO until the next phase.

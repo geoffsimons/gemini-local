@@ -231,6 +231,23 @@ interface ProjectSession {
   folderPath: string;
   /** Explicit conversation history; source of truth to avoid core internal state mutation. */
   history: HistoryEntry[];
+  /** When true, tool calls are auto-executed (YOLO); when false, stream pauses for UI approval. */
+  yoloMode: boolean;
+}
+
+/** Read yoloMode from project .gemini/settings.json; default false if missing or invalid. */
+function readYoloModeFromConfig(folderPath: string): boolean {
+  const configPath = join(folderPath, '.gemini', 'settings.json');
+  if (!existsSync(configPath)) return false;
+  try {
+    const raw = readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(raw) as { security?: { disableYoloMode?: boolean } };
+    const disable = config?.security?.disableYoloMode;
+    if (typeof disable === 'boolean') return !disable;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 class ClientRegistry {
@@ -286,11 +303,15 @@ class ClientRegistry {
       });
 
       const client = new GeminiClient(config);
+      const yoloMode = readYoloModeFromConfig(normalizedPath);
 
-      session = { client, config, initialized: false, folderPath: normalizedPath, history: [] };
+      session = { client, config, initialized: false, folderPath: normalizedPath, history: [], yoloMode };
       this.sessions.set(registryKey, session);
     } else {
       log.debug('Session cache hit', { folder: normalizedPath, sessionId, registryKey });
+      if (!('yoloMode' in session) || typeof session.yoloMode !== 'boolean') {
+        (session as ProjectSession).yoloMode = readYoloModeFromConfig(normalizedPath);
+      }
     }
 
     return session;
@@ -444,6 +465,22 @@ class ClientRegistry {
       log.error('Model switch handover failed', { error: err, sessionId: sid });
       throw err;
     }
+  }
+
+  /** Get current yoloMode for a session; returns false if session does not exist. */
+  public getYoloMode(folderPath: string, sessionId?: string): boolean {
+    const normalizedPath = resolve(folderPath);
+    const sid = sessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sid}`;
+    const session = this.sessions.get(registryKey);
+    return session?.yoloMode ?? false;
+  }
+
+  /** Set yoloMode for an existing session (runtime-only; does not persist to disk). */
+  public async setYoloMode(folderPath: string, value: boolean, sessionId?: string): Promise<void> {
+    const session = await this.getSession(folderPath, sessionId);
+    session.yoloMode = value;
+    log.info('YOLO mode updated', { folder: session.folderPath, yoloMode: value });
   }
 }
 
