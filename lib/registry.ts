@@ -212,7 +212,10 @@ class GeminiClient extends CoreClient {
     const sessionId = options.sessionId ?? promptId;
     const stream = this.sendMessageStream(parts, options.signal, promptId);
 
+    log.debug('Prompt started', { stream });
+
     for await (const event of stream) {
+      log.debug('Stream event', { event });
       for (const jsonEvent of serverEventToJsonStreamEvents(event, sessionId)) {
         yield jsonEvent;
       }
