@@ -18,7 +18,7 @@ export default function HubConsole() {
     unregister,
   } = useRegistry();
 
-  const { messages, sending, sendMessage, clearMessages } = useChat();
+  const { messages, sending, sendMessage, clearMessages, addSystemMessage } = useChat();
 
   // Initial fetch
   useEffect(() => {
@@ -68,6 +68,7 @@ export default function HubConsole() {
             sending={sending}
             onSendMessage={sendMessage}
             onClearMessages={clearMessages}
+            onAddSystemMessage={addSystemMessage}
           />
         </div>
       </div>

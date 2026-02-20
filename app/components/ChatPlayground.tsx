@@ -36,6 +36,7 @@ interface ChatPlaygroundProps {
     images?: Array<{ data: string; mimeType: string }>,
   ) => Promise<void>;
   onClearMessages: () => void;
+  onAddSystemMessage: (text: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,16 +62,55 @@ export default function ChatPlayground({
   sending,
   onSendMessage,
   onClearMessages,
+  onAddSystemMessage,
 }: ChatPlaygroundProps) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [loadingPrompt, setLoadingPrompt] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [switchingModel, setSwitchingModel] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch available models once
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/models")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: string[]) => {
+        if (!cancelled && Array.isArray(data)) setModels(data);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Sync current model and session readiness from status when activeFolder changes
+  useEffect(() => {
+    if (!activeFolder) {
+      setCurrentModel(null);
+      setSessionReady(false);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({ folderPath: activeFolder });
+    fetch(`/api/chat/status?${params}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { currentModel?: string; isWarm?: boolean } | null) => {
+        if (cancelled || !data) return;
+        setCurrentModel(data.currentModel ?? null);
+        setSessionReady(Boolean(data.isWarm));
+      })
+      .catch(() => {
+        if (!cancelled) setSessionReady(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeFolder]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -193,6 +233,29 @@ export default function ChatPlayground({
       }
     },
     [handleSend],
+  );
+
+  const handleModelChange = useCallback(
+    async (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const model = e.target.value;
+      if (!activeFolder || !model || switchingModel) return;
+      setSwitchingModel(true);
+      try {
+        const res = await fetch("/api/chat/model", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderPath: activeFolder, model }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setCurrentModel(model);
+          onAddSystemMessage(`System: Model switched to ${model}.`);
+        }
+      } finally {
+        setSwitchingModel(false);
+      }
+    },
+    [activeFolder, switchingModel, onAddSystemMessage],
   );
 
   // ---------------------------------------------------------------------------
@@ -359,6 +422,37 @@ export default function ChatPlayground({
             className="flex-1 resize-none rounded border border-border bg-surface-2 px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-accent disabled:opacity-50"
           />
 
+          {/* Model switcher — top-right of input area, disabled when session not warm */}
+          <div className="relative mb-0.5">
+            <select
+              value={currentModel ?? ""}
+              onChange={handleModelChange}
+              disabled={!sessionReady || switchingModel}
+              title={sessionReady ? "Switch model" : "Warm up session to switch model"}
+              className="appearance-none rounded border border-border bg-surface-2 py-1.5 pl-2 pr-6 font-mono text-[11px] text-text-secondary outline-none transition-colors focus:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {(!currentModel || models.length === 0) && (
+                <option value="">—</option>
+              )}
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            {switchingModel ? (
+              <Loader2
+                size={12}
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-text-muted"
+              />
+            ) : (
+              <ChevronDown
+                size={12}
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-muted"
+              />
+            )}
+          </div>
+
           {/* Send */}
           <button
             onClick={handleSend}
@@ -386,6 +480,17 @@ export default function ChatPlayground({
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const isSystem = message.role === "system";
+
+  if (isSystem) {
+    return (
+      <div className="flex justify-center">
+        <div className="rounded bg-surface-1 px-2.5 py-1.5 font-mono text-[11px] text-text-muted">
+          {message.text}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>

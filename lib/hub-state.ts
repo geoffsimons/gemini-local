@@ -129,7 +129,7 @@ export function useRegistry() {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
   images?: string[]; // base64 data URIs for user-attached previews
   timestamp: number;
@@ -196,5 +196,15 @@ export function useChat() {
     setMessages([]);
   }, []);
 
-  return { messages, sending, sendMessage, clearMessages };
+  const addSystemMessage = useCallback((text: string) => {
+    const msg: ChatMessage = {
+      id: `msg-${++idCounter.current}`,
+      role: "system",
+      text,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
+  return { messages, sending, sendMessage, clearMessages, addSystemMessage };
 }
