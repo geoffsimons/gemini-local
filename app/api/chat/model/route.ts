@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registry } from "@/lib/registry";
+import { setModelForSession } from "@/lib/registry";
 import { createLogger } from "@/lib/logger";
 import path from "path";
 
@@ -27,18 +27,16 @@ export async function POST(req: NextRequest) {
 
     const resolvedPath = path.resolve(folderPath);
 
-    // Guard: Check if the session exists in the registry
-    if (!registry.hasSession(resolvedPath, sessionId)) {
-      return NextResponse.json({ error: 'Session not found for folder' }, { status: 404 });
-    }
-
     try {
-      await registry.setModel(resolvedPath, model, sessionId);
-      logger.info('Model switched', { folder: resolvedPath, model });
+      await setModelForSession(resolvedPath, model, sessionId);
+      logger.info('Model switched with history handover', { folder: resolvedPath, model });
       return NextResponse.json({ success: true, model });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error('Failed to switch model (CLI failure)', { error: message });
+      if (message.includes('does not exist')) {
+        return NextResponse.json({ error: 'Session not found for folder' }, { status: 404 });
+      }
+      logger.error('Failed to switch model (CLI/Google SDK failure)', { error: message, folder: resolvedPath, model });
       return NextResponse.json(
         { error: 'Failed to switch model', details: message },
         { status: 502 },

@@ -8,11 +8,27 @@ const nextConfig = {
   // to ensure our binary dependencies load correctly.
   turbopack: {},
 
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.externals.push({
       "utf-8-validate": "commonjs utf-8-validate",
       "bufferutil": "commonjs bufferutil",
     });
+    // Force a single registry module instance so API routes share the same registry (avoids "setModel is not a function")
+    if (isServer) {
+      config.optimization = config.optimization || {};
+      config.optimization.splitChunks = {
+        ...config.optimization.splitChunks,
+        cacheGroups: {
+          ...config.optimization.splitChunks?.cacheGroups,
+          registry: {
+            test: /[\\/]lib[\\/]registry\.(ts|js)/,
+            name: "registry",
+            chunks: "all",
+            enforce: true,
+          },
+        },
+      };
+    }
     return config;
   },
 };

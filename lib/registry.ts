@@ -1,6 +1,6 @@
 import { GeminiClient as CoreClient, Config, AuthType } from "@google/gemini-cli-core";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { scryptSync } from "node:crypto";
 import { createLogger } from "./logger";
 
@@ -26,7 +26,15 @@ class GeminiClient extends CoreClient {
     }
     await this.initialize();
     this.updateSystemInstruction();
-    await this.startChat();
+  }
+
+  /**
+   * Rebind the client to a new model while preserving history.
+   */
+  public async rebind(history: any[]): Promise<void> {
+    // @ts-ignore - resumeChat exists in CoreClient
+    await this.resumeChat(history);
+    this.updateSystemInstruction();
   }
 }
 
@@ -45,23 +53,24 @@ class ClientRegistry {
   }
 
   public async getSession(folderPath: string, customSessionId?: string, model?: string): Promise<ProjectSession> {
-    const sessionId = customSessionId || this.generateStableId(folderPath);
-    const registryKey = `${folderPath}:${sessionId}`;
+    const normalizedPath = resolve(folderPath);
+    const sessionId = customSessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sessionId}`;
     let session = this.sessions.get(registryKey);
 
     if (!session) {
-      if (!existsSync(folderPath)) {
-        log.warn('Rejected session for nonexistent directory', { folder: folderPath });
-        throw new Error(`Directory does not exist: ${folderPath}`);
+      if (!existsSync(normalizedPath)) {
+        log.warn('Rejected session for nonexistent directory', { folder: normalizedPath });
+        throw new Error(`Directory does not exist: ${normalizedPath}`);
       }
 
-      log.info('Creating new session for folder', { folder: folderPath, sessionId });
+      log.info('Creating new session for folder', { folder: normalizedPath, sessionId });
 
       const config = new Config({
         sessionId: sessionId,
         model: model || "gemini-2.5-flash",
-        targetDir: folderPath,
-        cwd: folderPath,
+        targetDir: normalizedPath,
+        cwd: normalizedPath,
         debugMode: false,
         interactive: false, // Essential: prevents the CLI from trying to hijack the terminal
       });
@@ -71,15 +80,16 @@ class ClientRegistry {
       session = { client, config, initialized: false };
       this.sessions.set(registryKey, session);
     } else {
-      log.debug('Session cache hit', { folder: folderPath, sessionId, registryKey });
+      log.debug('Session cache hit', { folder: normalizedPath, sessionId, registryKey });
     }
 
     return session;
   }
 
   public async initializeSession(folderPath: string, customSessionId?: string, model?: string): Promise<void> {
-    const sessionId = customSessionId || this.generateStableId(folderPath);
-    const registryKey = `${folderPath}:${sessionId}`;
+    const normalizedPath = resolve(folderPath);
+    const sessionId = customSessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sessionId}`;
     const session = this.sessions.get(registryKey);
 
     // Check Phase: already initialized
@@ -143,8 +153,9 @@ class ClientRegistry {
   }
 
   public async clearSession(folderPath: string, sessionId?: string): Promise<void> {
-    const sid = sessionId || this.generateStableId(folderPath);
-    const registryKey = `${folderPath}:${sid}`;
+    const normalizedPath = resolve(folderPath);
+    const sid = sessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sid}`;
 
     this.sessions.delete(registryKey);
     this.pendingInits.delete(registryKey);
@@ -153,34 +164,54 @@ class ClientRegistry {
   }
 
   public isReady(folderPath: string): boolean {
-    const registryKey = `${folderPath}:${this.generateStableId(folderPath)}`;
+    const normalizedPath = resolve(folderPath);
+    const registryKey = `${normalizedPath}:${this.generateStableId(normalizedPath)}`;
     return this.sessions.get(registryKey)?.initialized ?? false;
   }
 
   public hasSession(folderPath: string, sessionId?: string): boolean {
-    const sid = sessionId || this.generateStableId(folderPath);
-    const registryKey = `${folderPath}:${sid}`;
+    const normalizedPath = resolve(folderPath);
+    const sid = sessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sid}`;
     return this.sessions.has(registryKey);
   }
 
-  public getStatus(folderPath: string): { isReady: boolean; sessionId?: string; currentModel?: string } {
-    const sessionId = this.generateStableId(folderPath);
-    const registryKey = `${folderPath}:${sessionId}`;
+  public getStatus(folderPath: string, customSessionId?: string): { isReady: boolean; sessionId?: string; currentModel?: string; sessionExists?: boolean } {
+    const normalizedPath = resolve(folderPath);
+    const sessionId = customSessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sessionId}`;
     const session = this.sessions.get(registryKey);
 
-    if (!session) return { isReady: false };
+    if (!session) {
+      return { isReady: false, currentModel: "gemini-2.5-flash", sessionExists: false };
+    }
     return {
       isReady: session.initialized,
       sessionId,
-      currentModel: session.client.currentModel || session.config.getModel() || "gemini-2.5-flash"
+      currentModel: session.client.currentModel || session.config.getModel() || "gemini-2.5-flash",
+      sessionExists: true
     };
   }
 
   public async setModel(folderPath: string, model: string, sessionId?: string): Promise<void> {
     const session = await this.getSession(folderPath, sessionId);
-    log.info('Switching model', { folder: folderPath, model });
+    const sid = session.config.getSessionId();
+    log.info('Switching model with state handover', { folder: folderPath, model, sessionId: sid });
+
+    // Step 1: Capture State
+    const history = session.client.getHistory();
+
+    // Step 2: Update Config
     session.config.setModel(model);
     session.client.currentModel = model;
+
+    // Step 3: Handover
+    try {
+      await session.client.rebind(history);
+    } catch (err) {
+      log.error('Model switch handover failed', { error: err, sessionId: sid });
+      throw err;
+    }
   }
 }
 
@@ -189,5 +220,26 @@ declare global {
   var registry: ClientRegistry | undefined;
 }
 
-export const registry = globalThis.registry ?? new ClientRegistry();
+/** Returns the shared registry at runtime (use in routes that may load in a different bundle). */
+export function getRegistry(): ClientRegistry {
+  if (!globalThis.registry) {
+    globalThis.registry = new ClientRegistry();
+  }
+  return globalThis.registry as ClientRegistry;
+}
+
+/**
+ * Switch model for a folder session. Exported so the model route can call this
+ * without pulling in a tree-shaken registry that lacks setModel.
+ */
+export async function setModelForSession(
+  folderPath: string,
+  model: string,
+  sessionId?: string
+): Promise<void> {
+  const reg = getRegistry();
+  await reg.setModel(folderPath, model, sessionId);
+}
+
+export const registry = getRegistry();
 if (process.env.NODE_ENV !== "production") globalThis.registry = registry;

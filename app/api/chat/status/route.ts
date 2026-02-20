@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       folderPath: resolvedPath,
       ready: status.isReady,
       isWarm: status.isReady,
-      currentModel: status.currentModel,
+      currentModel: status.currentModel ?? "gemini-2.5-flash",
       sessionId: status.sessionId
     });
   } catch (err: unknown) {
