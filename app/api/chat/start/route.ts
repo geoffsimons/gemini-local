@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { existsSync } from "node:fs";
-import { registry } from "@/lib/registry";
+import { registry, DEFAULT_GEMINI_MODEL } from "@/lib/registry";
 import { isFolderTrusted, addTrustedFolder } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import path from "path";
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       sessionId?: string;
       model?: string;
     };
+    const effectiveModel = model ?? DEFAULT_GEMINI_MODEL;
 
     if (!folderPath) {
       return NextResponse.json({ error: 'folderPath is required' }, { status: 400 });
@@ -47,8 +48,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Initialization — create session entry then initialise
-    await registry.getSession(resolvedPath, sessionId, model);
-    await registry.initializeSession(resolvedPath, sessionId, model);
+    await registry.getSession(resolvedPath, sessionId, effectiveModel);
+    await registry.initializeSession(resolvedPath, sessionId, effectiveModel);
 
     logger.info('Session warmed up', { folder: resolvedPath });
     return NextResponse.json({ status: 'ready', folderPath: resolvedPath });

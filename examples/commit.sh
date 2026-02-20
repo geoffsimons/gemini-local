@@ -52,11 +52,24 @@ User Hint: ${hint_content}"
       '{folderPath: $fp, message: $msg, ephemeral: true}')
 
     local response
-    response=$(curl -s -X POST "$HUB_URL" \
-        -H "Content-Type: application/json" \
-        -d "$PAYLOAD")
-
-    echo "$response" | jq -r '.response'
+    local raw
+    local attempts=0
+    local max_attempts=2
+    while [ "$attempts" -lt "$max_attempts" ]; do
+      raw=$(curl -s -X POST "$HUB_URL" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD")
+      response=$(echo "$raw" | jq -r '.response')
+      if [[ -n "$response" && "$response" != "null" ]]; then
+        echo "$response"
+        return 0
+      fi
+      attempts=$((attempts + 1))
+      if [ "$attempts" -lt "$max_attempts" ]; then
+        sleep 1
+      fi
+    done
+    echo "$response"
 }
 
 HINT=""

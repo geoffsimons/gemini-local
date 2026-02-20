@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registry } from "@/lib/registry";
+import { registry, DEFAULT_GEMINI_MODEL } from "@/lib/registry";
 import { createLogger } from "@/lib/logger";
 import path from "path";
 
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       folderPath: resolvedPath,
       ready: status.isReady,
       isWarm: status.isReady,
-      currentModel: status.currentModel ?? "gemini-2.5-flash",
+      currentModel: status.currentModel ?? DEFAULT_GEMINI_MODEL,
       sessionId: status.sessionId
     });
   } catch (err: unknown) {

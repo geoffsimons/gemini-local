@@ -16,6 +16,10 @@ import { isFolderTrusted } from "./folders";
 
 const log = createLogger('Hub/Registry');
 
+const DEFAULT_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || "gemini-3-flash-preview";
+
+log.info('DEFAULT_GEMINI_MODEL', { DEFAULT_GEMINI_MODEL });
+
 function timestamp(): string {
   return new Date().toISOString();
 }
@@ -170,7 +174,7 @@ class GeminiClient extends CoreClient {
 
   constructor(config: Config) {
     super(config);
-    this.currentModel = config.getModel() || "gemini-2.5-flash";
+    this.currentModel = config.getModel() || DEFAULT_GEMINI_MODEL;
   }
 
   /**
@@ -249,7 +253,7 @@ class ClientRegistry {
 
       const config = new Config({
         sessionId: sessionId,
-        model: model || "gemini-2.5-flash",
+        model: model || DEFAULT_GEMINI_MODEL,
         targetDir: normalizedPath,
         cwd: normalizedPath,
         debugMode: false,
@@ -397,12 +401,12 @@ class ClientRegistry {
     const session = this.sessions.get(registryKey);
 
     if (!session) {
-      return { isReady: false, currentModel: "gemini-2.5-flash", sessionExists: false };
+      return { isReady: false, currentModel: DEFAULT_GEMINI_MODEL, sessionExists: false };
     }
     return {
       isReady: session.initialized,
       sessionId,
-      currentModel: session.client.currentModel || session.config.getModel() || "gemini-2.5-flash",
+      currentModel: session.client.currentModel || session.config.getModel() || DEFAULT_GEMINI_MODEL,
       sessionExists: true
     };
   }
@@ -456,4 +460,5 @@ export async function setModelForSession(
 }
 
 export const registry = getRegistry();
+export { DEFAULT_GEMINI_MODEL };
 if (process.env.NODE_ENV !== "production") globalThis.registry = registry;

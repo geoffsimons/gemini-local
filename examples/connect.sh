@@ -13,6 +13,8 @@
 #
 #     chmod +x connect.sh && ./connect.sh
 #
+#   Optional: --pro to warm up a session with the Pro model (default is Flash).
+#
 # Requirements: curl, jq
 # ===========================================================================
 
@@ -27,6 +29,17 @@ for cmd in curl jq; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "❌ Required tool '$cmd' is not installed. Please install it and try again."
     exit 1
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Parse args — optional --pro to use Pro model for this session
+# ---------------------------------------------------------------------------
+USE_PRO=false
+for arg in "$@"; do
+  if [ "$arg" = "--pro" ]; then
+    USE_PRO=true
+    break
   fi
 done
 
@@ -60,9 +73,14 @@ echo "✅ Hub is healthy"
 # ---------------------------------------------------------------------------
 echo "📡 Registering project with the Hub ..."
 
+START_PAYLOAD="{\"folderPath\": \"${PROJECT_PATH}\"}"
+if [ "$USE_PRO" = true ]; then
+  START_PAYLOAD="$(jq -n --arg fp "$PROJECT_PATH" '{folderPath: $fp, model: "gemini-3-pro-preview"}')"
+fi
+
 START_RESPONSE="$(curl -sf -X POST "${HUB_URL}/api/chat/start" \
   -H "Content-Type: application/json" \
-  -d "{\"folderPath\": \"${PROJECT_PATH}\"}" 2>/dev/null)" || {
+  -d "$START_PAYLOAD" 2>/dev/null)" || {
   echo "❌ Failed to register project. Is the path valid?"
   exit 1
 }

@@ -53,18 +53,29 @@ Git History:
 $HISTORY
 "
 
-# 5. Query the Hub
+# 5. Query the Hub (graceful retry for transient latency)
 echo "🤖 Querying Gemini Hub for documentation updates..."
 PAYLOAD=$(jq -n \
   --arg fp "$PROJECT_PATH" \
   --arg msg "$PROMPT" \
   '{folderPath: $fp, message: $msg}')
 
-RESPONSE=$(curl -s -X POST "$HUB_URL" \
-    -H "Content-Type: application/json" \
-    -d "$PAYLOAD")
-
-OUTPUT=$(echo "$RESPONSE" | jq -r '.response')
+OUTPUT=""
+attempts=0
+max_attempts=2
+while [ "$attempts" -lt "$max_attempts" ]; do
+  RESPONSE=$(curl -s -X POST "$HUB_URL" \
+      -H "Content-Type: application/json" \
+      -d "$PAYLOAD")
+  OUTPUT=$(echo "$RESPONSE" | jq -r '.response')
+  if [[ -n "$OUTPUT" && "$OUTPUT" != "null" ]]; then
+    break
+  fi
+  attempts=$((attempts + 1))
+  if [ "$attempts" -lt "$max_attempts" ]; then
+    sleep 1
+  fi
+done
 
 if [[ -z "$OUTPUT" || "$OUTPUT" == "null" ]]; then
     echo "❌ Error: Failed to get a response from the Hub."
