@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRegistry, useChat } from "@/lib/hub-state";
 import ProjectList from "@/app/components/ProjectList";
 import ChatPlayground from "@/app/components/ChatPlayground";
@@ -18,11 +18,24 @@ export default function HubConsole() {
     unregister,
   } = useRegistry();
 
-  const { messages, sending, sendMessage, clearMessages, addSystemMessage } = useChat();
+  const {
+    messages,
+    sending,
+    sendMessage,
+    clearMessages,
+    addSystemMessage,
+    thinkingState,
+    activeModel,
+  } = useChat();
 
-  // Initial fetch
+  const hasInitialized = useRef(false);
+
+  // Initial fetch (Strict Mode guard: run once per lifecycle)
   useEffect(() => {
-    fetchFolders();
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      fetchFolders();
+    }
   }, [fetchFolders]);
 
   return (
@@ -69,6 +82,8 @@ export default function HubConsole() {
             onSendMessage={sendMessage}
             onClearMessages={clearMessages}
             onAddSystemMessage={addSystemMessage}
+            thinkingState={thinkingState}
+            activeModel={activeModel}
           />
         </div>
       </div>

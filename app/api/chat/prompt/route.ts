@@ -134,8 +134,8 @@ export async function POST(req: NextRequest) {
       const encoder = new TextEncoder();
       const readableStream = new ReadableStream({
         async start(controller) {
-          const sendEvent = (event: any) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          const sendEvent = (event: object) => {
+            controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
           };
 
           try {
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
               switch (event.type) {
                 case JsonStreamEventType.INIT:
                   logger.info('Stream initialized', { model: (event as any).model });
-                  sendEvent(event);
+                  sendEvent({ type: 'INIT', model: (event as any).model });
                   break;
 
                 case JsonStreamEventType.MESSAGE:
@@ -166,8 +166,9 @@ export async function POST(req: NextRequest) {
                 case JsonStreamEventType.TOOL_USE:
                   logger.info('Tool use detected', { tool: (event as any).tool_name });
                   sendEvent({
-                    type: 'THOUGHT',
-                    content: `[Tool Use: ${(event as any).tool_name}] executing with parameters...`,
+                    type: 'TOOL_USE',
+                    tool_name: (event as any).tool_name,
+                    parameters: (event as any).parameters ?? {},
                   });
                   break;
 
@@ -193,7 +194,7 @@ export async function POST(req: NextRequest) {
 
       return new NextResponse(readableStream, {
         headers: {
-          'Content-Type': 'text/event-stream',
+          'Content-Type': 'application/x-ndjson',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
         },

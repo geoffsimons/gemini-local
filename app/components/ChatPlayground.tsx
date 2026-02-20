@@ -37,6 +37,8 @@ interface ChatPlaygroundProps {
   ) => Promise<void>;
   onClearMessages: () => void;
   onAddSystemMessage: (text: string) => void;
+  thinkingState: string | null;
+  activeModel: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,8 @@ export default function ChatPlayground({
   onSendMessage,
   onClearMessages,
   onAddSystemMessage,
+  thinkingState,
+  activeModel,
 }: ChatPlaygroundProps) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -233,8 +237,8 @@ export default function ChatPlayground({
   // ---------------------------------------------------------------------------
 
   const handleSend = useCallback(async () => {
-    if (!activeFolder || sending) return;
-    if (!input.trim() && images.length === 0) return;
+    if (sending || thinkingState || !input.trim()) return;
+    if (!activeFolder) return;
 
     const imagePayloads = images.map((img) => ({
       data: img.data,
@@ -250,7 +254,7 @@ export default function ChatPlayground({
       text,
       imagePayloads.length > 0 ? imagePayloads : undefined,
     );
-  }, [activeFolder, input, images, sending, onSendMessage]);
+  }, [activeFolder, input, images, sending, thinkingState, onSendMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -376,6 +380,12 @@ export default function ChatPlayground({
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
+            {thinkingState && (
+              <div className="flex items-center gap-2 py-1.5 font-mono text-[11px] text-text-muted">
+                <Loader2 size={12} className="shrink-0 animate-spin text-accent/80" />
+                <span>{thinkingState}</span>
+              </div>
+            )}
             {sending && (
               <div className="flex items-center gap-2 py-2">
                 <Loader2
@@ -385,6 +395,11 @@ export default function ChatPlayground({
                 <span className="font-mono text-xs text-text-muted">
                   Thinking...
                 </span>
+                {activeModel && (
+                  <span className="font-mono text-[10px] text-text-muted">
+                    · {activeModel}
+                  </span>
+                )}
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -444,7 +459,7 @@ export default function ChatPlayground({
                 ? "Send a message... (Shift+Enter for newline)"
                 : "Select a project first"
             }
-            disabled={!activeFolder || sending}
+            disabled={!activeFolder || sending || !!thinkingState}
             rows={1}
             className="flex-1 resize-none rounded border border-border bg-surface-2 px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-accent disabled:opacity-50"
           />
@@ -484,7 +499,10 @@ export default function ChatPlayground({
           <button
             onClick={handleSend}
             disabled={
-              !activeFolder || sending || (!input.trim() && images.length === 0)
+              !activeFolder ||
+              sending ||
+              !!thinkingState ||
+              (!input.trim() && images.length === 0)
             }
             className="mb-0.5 rounded bg-accent p-2 text-white transition-colors hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
             title="Send message"

@@ -139,6 +139,8 @@ export interface ChatMessage {
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [thinkingState, setThinkingState] = useState<string | null>(null);
+  const [activeModel, setActiveModel] = useState<string | null>(null);
   const idCounter = useRef(0);
 
   const sendMessage = useCallback(
@@ -158,6 +160,7 @@ export function useChat() {
       };
       setMessages((prev) => [...prev, userMsg]);
       setSending(true);
+      setThinkingState(null);
 
       try {
         const res = await fetch("/api/chat/prompt", {
@@ -167,6 +170,7 @@ export function useChat() {
             folderPath,
             message: text || undefined,
             images: images?.length ? images : undefined,
+            stream: true,
           }),
         });
 
@@ -188,57 +192,80 @@ export function useChat() {
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-
-        let partialData = "";
+        let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          partialData += chunk;
-
-          const lines = partialData.split("\n\n");
-          partialData = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
 
           for (const line of lines) {
-            const cleanLine = line.trim();
-            if (!cleanLine.startsWith("data: ")) continue;
-
+            const trimmed = line.trim();
+            if (!trimmed) continue;
             try {
-              const event = JSON.parse(cleanLine.slice(6));
+              const event = JSON.parse(trimmed) as {
+                type: string;
+                model?: string;
+                tool_name?: string;
+                parameters?: Record<string, unknown>;
+                content?: string;
+                delta?: boolean;
+                message?: string;
+              };
 
-              setMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id !== assistantId) return m;
-
-                  switch (event.type) {
-                    case "MESSAGE":
-                      return {
-                        ...m,
-                        text: event.delta ? m.text + event.content : event.content,
-                      };
-                    case "THOUGHT":
-                      return {
-                        ...m,
-                        thought: (m.thought || "") + event.content + "\n",
-                      };
-                    case "ERROR":
-                      return {
-                        ...m,
-                        text: m.text + `\n\n[Error: ${event.message}]`,
-                      };
-                    default:
-                      return m;
+              switch (event.type) {
+                case "INIT":
+                  if (event.model) setActiveModel(event.model);
+                  break;
+                case "TOOL_USE": {
+                  const params = event.parameters ?? {};
+                  const pathVal = typeof params.path === "string" ? params.path : undefined;
+                  const label = pathVal ? `Reading ${pathVal}` : `Using ${event.tool_name ?? "tool"}`;
+                  setThinkingState(label);
+                  break;
+                }
+                case "MESSAGE":
+                  setThinkingState(null);
+                  if (event.delta) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantId
+                          ? { ...m, text: m.text + (event.content ?? "") }
+                          : m,
+                      ),
+                    );
+                  } else if (event.content !== undefined) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantId ? { ...m, text: event.content ?? "" } : m,
+                      ),
+                    );
                   }
-                }),
-              );
+                  break;
+                case "RESULT":
+                case "ERROR":
+                  setThinkingState(null);
+                  if (event.type === "ERROR" && event.message) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantId
+                          ? { ...m, text: m.text + `\n\n[Error: ${event.message}]` }
+                          : m,
+                      ),
+                    );
+                  }
+                  break;
+              }
             } catch (err) {
-              console.error("Failed to parse SSE event", err);
+              console.error("Failed to parse NDJSON event", err);
             }
           }
         }
       } catch (err: any) {
+        setThinkingState(null);
         const errorMsg: ChatMessage = {
           id: `msg-${++idCounter.current}`,
           role: "assistant",
@@ -267,5 +294,13 @@ export function useChat() {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
-  return { messages, sending, sendMessage, clearMessages, addSystemMessage };
+  return {
+    messages,
+    sending,
+    sendMessage,
+    clearMessages,
+    addSystemMessage,
+    thinkingState,
+    activeModel,
+  };
 }
