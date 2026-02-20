@@ -163,6 +163,36 @@ class ClientRegistry {
     log.info(`Session purged from Registry: ${registryKey}. Next request will trigger a fresh initialization.`);
   }
 
+  /**
+   * Waits for the session to become initialized (e.g. another request is initializing).
+   * Polls for a limited time; throws if not ready so the caller can return 503.
+   */
+  public async ensureSessionReady(
+    folderPath: string,
+    customSessionId?: string,
+    options?: { timeoutMs?: number; pollIntervalMs?: number },
+  ): Promise<void> {
+    const normalizedPath = resolve(folderPath);
+    const sessionId = customSessionId || this.generateStableId(normalizedPath);
+    const registryKey = `${normalizedPath}:${sessionId}`;
+    const timeoutMs = options?.timeoutMs ?? 12_000;
+    const pollIntervalMs = options?.pollIntervalMs ?? 300;
+
+    const session = this.sessions.get(registryKey);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+    if (session.initialized) return;
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+      const current = this.sessions.get(registryKey);
+      if (current?.initialized) return;
+    }
+    throw new Error('Service Warming Up');
+  }
+
   public isReady(folderPath: string): boolean {
     const normalizedPath = resolve(folderPath);
     const registryKey = `${normalizedPath}:${this.generateStableId(normalizedPath)}`;

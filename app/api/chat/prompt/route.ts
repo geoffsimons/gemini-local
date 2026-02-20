@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
       await registry.initializeSession(resolvedPath, sessionId);
     }
 
+    await registry.ensureSessionReady(resolvedPath, sessionId);
     // Ephemeral Mode: clear history before processing if requested
     if (ephemeral) {
       await registry.resetSessionHistory(resolvedPath, sessionId);
@@ -118,6 +119,7 @@ export async function POST(req: NextRequest) {
 
     let responseText = '';
     for await (const event of stream) {
+      logger.debug('Stream event', { event });
       if (event.type === GeminiEventType.Content) {
         responseText += event.value;
       } else if (event.type === GeminiEventType.Error) {
@@ -130,10 +132,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (responseText.trim() === '') {
+      logger.error('CLI process returned no data', { folder: resolvedPath });
+      return NextResponse.json(
+        { error: 'Hub Error: CLI process returned no data.' },
+        { status: 500 },
+      );
+    }
+
     logger.info('Prompt completed', { chars: responseText.length });
     return NextResponse.json({ response: responseText });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    if (message === 'Service Warming Up') {
+      return NextResponse.json(
+        { error: 'Service Warming Up' },
+        { status: 503 },
+      );
+    }
     logger.error('Unhandled error in /api/chat/prompt', { error: message });
     return NextResponse.json(
       { error: 'Failed to process prompt', details: message },

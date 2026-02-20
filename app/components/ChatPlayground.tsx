@@ -90,7 +90,7 @@ export default function ChatPlayground({
     return () => { cancelled = true; };
   }, []);
 
-  // Sync current model and session readiness from status when activeFolder changes
+  // Initial status fetch when activeFolder changes
   useEffect(() => {
     if (!activeFolder) {
       setCurrentModel(null);
@@ -101,16 +101,43 @@ export default function ChatPlayground({
     const params = new URLSearchParams({ folderPath: activeFolder });
     fetch(`/api/chat/status?${params}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { currentModel?: string; isWarm?: boolean } | null) => {
+      .then((data: { currentModel?: string; ready?: boolean } | null) => {
         if (cancelled || !data) return;
         setCurrentModel(data.currentModel ?? null);
-        setSessionReady(Boolean(data.isWarm));
+        setSessionReady(Boolean(data.ready));
       })
       .catch(() => {
         if (!cancelled) setSessionReady(false);
       });
     return () => { cancelled = true; };
   }, [activeFolder]);
+
+  // Poll status every 2.5s while session is warming (activeFolder set but not ready)
+  useEffect(() => {
+    if (!activeFolder || sessionReady) return;
+    let cancelled = false;
+    const intervalMs = 2500;
+    const params = new URLSearchParams({ folderPath: activeFolder });
+    const poll = () => {
+      if (cancelled) return;
+      fetch(`/api/chat/status?${params}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { currentModel?: string; ready?: boolean } | null) => {
+          if (cancelled || !data) return;
+          if (data.ready) {
+            setCurrentModel(data.currentModel ?? null);
+            setSessionReady(true);
+          }
+        })
+        .catch(() => {});
+    };
+    const id = setInterval(poll, intervalMs);
+    poll();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [activeFolder, sessionReady]);
 
   // Auto-scroll on new messages
   useEffect(() => {
