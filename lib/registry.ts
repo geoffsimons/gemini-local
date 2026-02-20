@@ -242,6 +242,7 @@ class ClientRegistry {
   }
 
   public async getSession(folderPath: string, customSessionId?: string, model?: string): Promise<ProjectSession> {
+    log.info('Getting session', { folderPath, customSessionId, model });
     const normalizedPath = resolve(folderPath);
 
     // Secondary gatekeeper: do not return a session for untrusted paths
@@ -254,6 +255,14 @@ class ClientRegistry {
     const registryKey = `${normalizedPath}:${sessionId}`;
     let session = this.sessions.get(registryKey);
 
+    log.info('Session', { session });
+
+    // If session is not using the requested model, we need to switch it
+    if (session && model && session.client.currentModel !== model) {
+      log.info('Switching model', { folder: normalizedPath, sessionId, model });
+      await setModelForSession(folderPath, model, sessionId);
+    }
+
     if (!session) {
       if (!existsSync(normalizedPath)) {
         log.warn('Rejected session for nonexistent directory', { folder: normalizedPath });
@@ -261,6 +270,8 @@ class ClientRegistry {
       }
 
       log.info('Creating new session for folder', { folder: normalizedPath, sessionId });
+
+      log.info('Using model', { model: model || DEFAULT_GEMINI_MODEL });
 
       const config = new Config({
         sessionId: sessionId,

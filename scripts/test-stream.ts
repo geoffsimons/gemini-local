@@ -18,6 +18,7 @@ const payload = {
   message: 'What is the secret code?',
   stream: true,
   model: 'gemini-3-pro-preview',
+  // model: 'gemini-3.1-pro-preview',
 };
 
 async function run(): Promise<void> {

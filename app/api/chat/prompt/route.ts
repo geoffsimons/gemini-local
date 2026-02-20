@@ -62,10 +62,11 @@ function buildPromptParts(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { folderPath, sessionId, message, images, ephemeral, stream: streamRequest } = body as {
+    const { folderPath, sessionId, message, model, images, ephemeral, stream: streamRequest } = body as {
       folderPath: string;
       sessionId?: string;
       message?: string;
+      model?: string;
       images?: ImagePayload[];
       ephemeral?: boolean;
       stream?: boolean;
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     logger.info('Prompt received', { folder: resolvedPath, sessionId, ephemeral });
 
-    const session = await registry.getSession(resolvedPath, sessionId);
+    const session = await registry.getSession(resolvedPath, sessionId, model);
 
     // Streaming guard: request path must match the session's authorized path (when set)
     const sessionPath = session.folderPath ?? resolvedPath;
