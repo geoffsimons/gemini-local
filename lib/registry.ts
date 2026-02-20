@@ -135,13 +135,23 @@ class ClientRegistry {
     return this.sessions.get(registryKey)?.initialized ?? false;
   }
 
-  public getStatus(folderPath: string): { isReady: boolean; sessionId?: string } {
+  public getStatus(folderPath: string): { isReady: boolean; sessionId?: string; currentModel?: string } {
     const sessionId = this.generateStableId(folderPath);
     const registryKey = `${folderPath}:${sessionId}`;
     const session = this.sessions.get(registryKey);
 
     if (!session) return { isReady: false };
-    return { isReady: session.initialized, sessionId };
+    return {
+      isReady: session.initialized,
+      sessionId,
+      currentModel: session.config.getModel()
+    };
+  }
+
+  public async setModel(folderPath: string, model: string, sessionId?: string): Promise<void> {
+    const session = await this.getSession(folderPath, sessionId);
+    log.info('Switching model', { folder: folderPath, model });
+    session.config.setModel(model);
   }
 }
 

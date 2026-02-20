@@ -19,10 +19,16 @@ export async function GET(req: NextRequest) {
     }
 
     const resolvedPath = path.resolve(folderPath);
-    const ready = registry.isReady(resolvedPath);
+    const status = registry.getStatus(resolvedPath);
 
-    logger.debug('Status check', { folder: resolvedPath, ready });
-    return NextResponse.json({ folderPath: resolvedPath, ready });
+    logger.debug('Status check', { folder: resolvedPath, ...status });
+    return NextResponse.json({
+      folderPath: resolvedPath,
+      ready: status.isReady,
+      isWarm: status.isReady,
+      currentModel: status.currentModel,
+      sessionId: status.sessionId
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error('Status check failed', { error: message });
