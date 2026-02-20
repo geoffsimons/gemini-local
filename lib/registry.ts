@@ -12,6 +12,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { scryptSync } from "node:crypto";
 import { createLogger } from "./logger";
+import { isFolderTrusted } from "./folders";
 
 const log = createLogger('Hub/Registry');
 
@@ -213,6 +214,8 @@ interface ProjectSession {
   client: GeminiClient;
   config: Config;
   initialized: boolean;
+  /** Authorized folder path for this session (gatekeeper checks). */
+  folderPath: string;
 }
 
 class ClientRegistry {
@@ -225,6 +228,13 @@ class ClientRegistry {
 
   public async getSession(folderPath: string, customSessionId?: string, model?: string): Promise<ProjectSession> {
     const normalizedPath = resolve(folderPath);
+
+    // Secondary gatekeeper: do not return a session for untrusted paths
+    if (!(await isFolderTrusted(normalizedPath))) {
+      log.warn('Rejected session: folder not trusted', { folder: normalizedPath });
+      throw new Error('Folder not trusted');
+    }
+
     const sessionId = customSessionId || this.generateStableId(normalizedPath);
     const registryKey = `${normalizedPath}:${sessionId}`;
     let session = this.sessions.get(registryKey);
@@ -251,7 +261,7 @@ class ClientRegistry {
 
       const client = new GeminiClient(config);
 
-      session = { client, config, initialized: false };
+      session = { client, config, initialized: false, folderPath: normalizedPath };
       this.sessions.set(registryKey, session);
     } else {
       log.debug('Session cache hit', { folder: normalizedPath, sessionId, registryKey });
@@ -290,7 +300,7 @@ class ClientRegistry {
         if (existsSync(memoryPath)) {
           session.config.setUserMemory(readFileSync(memoryPath, "utf-8"));
         } else {
-          log.error('GEMINI.md not found — session will lack project memory', { folder: folderPath, sessionId: sid });
+          log.warn('GEMINI.md not found — session will lack project memory', { folder: folderPath, sessionId: sid });
         }
 
         try {

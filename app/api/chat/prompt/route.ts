@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
+import { isFolderTrusted } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import { cleanBase64, stitchImages } from "@/lib/images";
 import { JsonStreamEventType } from "@google/gemini-cli-core";
@@ -77,12 +78,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'message or images required' }, { status: 400 });
     }
 
-    // Resolve to an absolute path
     const resolvedPath = path.resolve(folderPath);
+
+    if (!(await isFolderTrusted(resolvedPath))) {
+      logger.warn('Prompt rejected: folder not trusted', { folder: resolvedPath });
+      return NextResponse.json({ error: 'Folder not trusted' }, { status: 403 });
+    }
+
     logger.info('Prompt received', { folder: resolvedPath, sessionId, ephemeral });
 
-    // Ensure the session exists in the registry
     const session = await registry.getSession(resolvedPath, sessionId);
+
+    // Streaming guard: request path must match the session's authorized path (when set)
+    const sessionPath = session.folderPath ?? resolvedPath;
+    if (resolvedPath !== sessionPath) {
+      logger.warn('Prompt rejected: folderPath does not match session', {
+        requestPath: resolvedPath,
+        sessionPath: session.folderPath,
+      });
+      return NextResponse.json({ error: 'Folder not trusted' }, { status: 403 });
+    }
 
     // Initialise on first use (Golden Copy sequence)
     if (!session.initialized) {

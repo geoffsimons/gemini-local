@@ -35,20 +35,40 @@ bold "[1/8] Health Check"
 curl -sf "$HUB_URL/health" > /dev/null || (red "Hub offline"; exit 1)
 green "  PASS: Hub is online"
 
-# 2. Warm-up
+# 2. Warm-up (trust test project then start)
 bold "[2/8] Initializing Sandbox..."
+curl -s -X POST "$HUB_URL/registry/add" \
+     -H "Content-Type: application/json" \
+     -d "{\"folderPath\": \"$TEST_PROJECT\"}" > /dev/null
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start" \
      -H "Content-Type: application/json" \
      -d "{\"folderPath\": \"$TEST_PROJECT\"}")
 [ "$HTTP_CODE" -eq 200 ] && green "  PASS: Sandbox warmed up" || (red "  FAIL: HTTP $HTTP_CODE"; exit 1)
 
-# 3. Context & Memory Test
+# 3. Context & Memory Test (retry up to 3x for transient API/stream issues)
 bold "[3/8] Verifying GEMINI.md Injection..."
-RESPONSE=$(curl -s --max-time 60 -X POST "$HUB_URL/chat/prompt" \
-     -H "Content-Type: application/json" \
-     -d "{\"folderPath\": \"$TEST_PROJECT\", \"message\": \"What is your secret code?\"}")
-TEXT=$(echo "$RESPONSE" | jq -r '.response // empty')
-[[ "$TEXT" == *"BLUE_MONKEY"* ]] && green "  PASS: Hub correctly read GEMINI.md" || (red "  FAIL: Hub ignored local memory. Response: $TEXT"; exit 1)
+STEP3_PASSED=0
+for attempt in 1 2 3; do
+  RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 60 -X POST "$HUB_URL/chat/prompt" \
+       -H "Content-Type: application/json" \
+       -d "{\"folderPath\": \"$TEST_PROJECT\", \"message\": \"What is your secret code?\"}")
+  HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+  BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
+  TEXT=$(echo "$BODY" | jq -r '.response // empty')
+  if [[ "$TEXT" == *"BLUE_MONKEY"* ]]; then
+    STEP3_PASSED=1
+    break
+  fi
+  [[ $attempt -lt 3 ]] && sleep 2
+done
+if [[ $STEP3_PASSED -eq 1 ]]; then
+  green "  PASS: Hub correctly read GEMINI.md"
+else
+  DETAILS=$(echo "$BODY" | jq -r '.details // .error // empty')
+  red "  FAIL: Hub ignored local memory (HTTP $HTTP_CODE). Response: $TEXT"
+  [[ -n "$DETAILS" ]] && red "  Details: $DETAILS"
+  exit 1
+fi
 
 # 4. Negative Test (Nonexistent folder)
 bold "[4/8] Validating Ghost Folder Rejection..."

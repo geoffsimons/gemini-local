@@ -1,5 +1,6 @@
 import { readFile, writeFile, access } from "node:fs/promises";
-import { join } from "node:path";
+import { realpathSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createLogger } from "./logger";
 
@@ -59,6 +60,35 @@ async function readTrustedMap(filePath: string): Promise<TrustedFoldersMap> {
 
   log.warn('trustedFolders.json is malformed — returning empty map', { path: filePath });
   return {};
+}
+
+/**
+ * Returns the canonical path for comparison, or null if path does not exist.
+ */
+function canonicalPath(pathIn: string): string | null {
+  const abs = resolve(pathIn);
+  if (!existsSync(abs)) return null;
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+/**
+ * Returns true if the given folder path is in the trusted list.
+ * Path is normalized (resolved) before comparison; also compares canonical
+ * (realpath) form when both paths exist so symlinks and /tmp match.
+ */
+export async function isFolderTrusted(folderPath: string): Promise<boolean> {
+  const normalized = resolve(folderPath);
+  const list = await getTrustedFolders();
+  return list.some((trusted) => {
+    if (resolve(trusted) === normalized) return true;
+    const canonical = canonicalPath(folderPath);
+    const trustedCanonical = canonicalPath(trusted);
+    return Boolean(canonical && trustedCanonical && canonical === trustedCanonical);
+  });
 }
 
 /**

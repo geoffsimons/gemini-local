@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { existsSync } from "node:fs";
 import { registry } from "@/lib/registry";
-import { addTrustedFolder } from "@/lib/folders";
+import { isFolderTrusted, addTrustedFolder } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import path from "path";
 
@@ -25,19 +25,26 @@ export async function POST(req: NextRequest) {
     }
 
     const resolvedPath = path.resolve(folderPath);
+
+    // 1. Gatekeeper — trust check first; no client or session for untrusted paths
+    if (!(await isFolderTrusted(resolvedPath))) {
+      logger.warn('Rejected start: folder not trusted', { folder: resolvedPath });
+      return NextResponse.json({ error: 'Folder not trusted' }, { status: 403 });
+    }
+
+    // Ensure path is persisted in trust list (idempotent) so subsequent requests see it
+    await addTrustedFolder(resolvedPath);
+
     logger.info('Start (warm-up) requested', { folder: resolvedPath, sessionId });
 
-    // 1. Existence Check — reject ghost folders before touching the trust list
+    // 2. Existence check
     if (!existsSync(resolvedPath)) {
-      logger.warn(`[WARN] Rejected ghost folder trust request: ${resolvedPath}`);
+      logger.warn('Rejected ghost folder', { folder: resolvedPath });
       return NextResponse.json(
         { error: `Directory does not exist: ${resolvedPath}` },
         { status: 400 },
       );
     }
-
-    // 2. Governance — only trust verified directories
-    await addTrustedFolder(resolvedPath);
 
     // 3. Initialization — create session entry then initialise
     await registry.getSession(resolvedPath, sessionId, model);
