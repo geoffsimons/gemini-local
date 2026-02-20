@@ -26,15 +26,29 @@ export async function POST(req: NextRequest) {
     }
 
     const resolvedPath = path.resolve(folderPath);
-    await registry.setModel(resolvedPath, model, sessionId);
 
-    logger.info('Model switched', { folder: resolvedPath, model });
-    return NextResponse.json({ success: true, model });
+    // Guard: Check if the session exists in the registry
+    if (!registry.hasSession(resolvedPath, sessionId)) {
+      return NextResponse.json({ error: 'Session not found for folder' }, { status: 404 });
+    }
+
+    try {
+      await registry.setModel(resolvedPath, model, sessionId);
+      logger.info('Model switched', { folder: resolvedPath, model });
+      return NextResponse.json({ success: true, model });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to switch model (CLI failure)', { error: message });
+      return NextResponse.json(
+        { error: 'Failed to switch model', details: message },
+        { status: 502 },
+      );
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error('Failed to switch model', { error: message });
+    logger.error('Internal Server Error during model switch', { error: message });
     return NextResponse.json(
-      { error: 'Failed to switch model', details: message },
+      { error: 'Internal Server Error', details: message },
       { status: 500 },
     );
   }

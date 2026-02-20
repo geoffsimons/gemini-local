@@ -14,9 +14,10 @@ const logger = createLogger('Hub/API/Chat');
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { folderPath, sessionId } = body as {
+    const { folderPath, sessionId, model } = body as {
       folderPath: string;
       sessionId?: string;
+      model?: string;
     };
 
     if (!folderPath) {
@@ -39,8 +40,8 @@ export async function POST(req: NextRequest) {
     await addTrustedFolder(resolvedPath);
 
     // 3. Initialization — create session entry then initialise
-    await registry.getSession(resolvedPath);
-    await registry.initializeSession(resolvedPath);
+    await registry.getSession(resolvedPath, sessionId, model);
+    await registry.initializeSession(resolvedPath, sessionId, model);
 
     logger.info('Session warmed up', { folder: resolvedPath });
     return NextResponse.json({ status: 'ready', folderPath: resolvedPath });

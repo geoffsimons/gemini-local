@@ -1,10 +1,34 @@
-import { GeminiClient, Config, AuthType } from "@google/gemini-cli-core";
+import { GeminiClient as CoreClient, Config, AuthType } from "@google/gemini-cli-core";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { scryptSync } from "node:crypto";
 import { createLogger } from "./logger";
 
 const log = createLogger('Hub/Registry');
+
+/**
+ * Enhanced GeminiClient with local state tracking for model switching.
+ */
+class GeminiClient extends CoreClient {
+  public currentModel: string;
+
+  constructor(config: Config) {
+    super(config);
+    this.currentModel = config.getModel() || "gemini-2.5-flash";
+  }
+
+  /**
+   * Warm up the client and optionally set the model.
+   */
+  public async start(model?: string): Promise<void> {
+    if (model) {
+      this.currentModel = model;
+    }
+    await this.initialize();
+    this.updateSystemInstruction();
+    await this.startChat();
+  }
+}
 
 interface ProjectSession {
   client: GeminiClient;
@@ -20,7 +44,7 @@ class ClientRegistry {
     return scryptSync(path, 'salt', 32).toString('hex').substring(0, 8);
   }
 
-  public async getSession(folderPath: string, customSessionId?: string): Promise<ProjectSession> {
+  public async getSession(folderPath: string, customSessionId?: string, model?: string): Promise<ProjectSession> {
     const sessionId = customSessionId || this.generateStableId(folderPath);
     const registryKey = `${folderPath}:${sessionId}`;
     let session = this.sessions.get(registryKey);
@@ -35,7 +59,7 @@ class ClientRegistry {
 
       const config = new Config({
         sessionId: sessionId,
-        model: "gemini-2.5-flash",
+        model: model || "gemini-2.5-flash",
         targetDir: folderPath,
         cwd: folderPath,
         debugMode: false,
@@ -53,7 +77,7 @@ class ClientRegistry {
     return session;
   }
 
-  public async initializeSession(folderPath: string, customSessionId?: string): Promise<void> {
+  public async initializeSession(folderPath: string, customSessionId?: string, model?: string): Promise<void> {
     const sessionId = customSessionId || this.generateStableId(folderPath);
     const registryKey = `${folderPath}:${sessionId}`;
     const session = this.sessions.get(registryKey);
@@ -86,9 +110,7 @@ class ClientRegistry {
         }
 
         try {
-          await session.client.initialize();
-          session.client.updateSystemInstruction();
-          await session.client.startChat();
+          await session.client.start(model);
         } catch (err) {
           log.error('CLI initialization failed', { folder: folderPath, sessionId: sid, error: err });
           throw err;
@@ -135,6 +157,12 @@ class ClientRegistry {
     return this.sessions.get(registryKey)?.initialized ?? false;
   }
 
+  public hasSession(folderPath: string, sessionId?: string): boolean {
+    const sid = sessionId || this.generateStableId(folderPath);
+    const registryKey = `${folderPath}:${sid}`;
+    return this.sessions.has(registryKey);
+  }
+
   public getStatus(folderPath: string): { isReady: boolean; sessionId?: string; currentModel?: string } {
     const sessionId = this.generateStableId(folderPath);
     const registryKey = `${folderPath}:${sessionId}`;
@@ -144,7 +172,7 @@ class ClientRegistry {
     return {
       isReady: session.initialized,
       sessionId,
-      currentModel: session.config.getModel()
+      currentModel: session.client.currentModel || session.config.getModel() || "gemini-2.5-flash"
     };
   }
 
@@ -152,6 +180,7 @@ class ClientRegistry {
     const session = await this.getSession(folderPath, sessionId);
     log.info('Switching model', { folder: folderPath, model });
     session.config.setModel(model);
+    session.client.currentModel = model;
   }
 }
 
