@@ -123,6 +123,11 @@ export async function POST(req: NextRequest) {
     const parts = buildPromptParts(message, images, compositeBase64);
     logger.debug(`Sending prompt: ${parts.length} part(s)`);
 
+    // --- Explicit history: sync core with Hub-owned history; append user turn so next prompt(parts) is the only new message ---
+    session.client.setHistory(session.history as any);
+    const userTurn = { role: 'user' as const, parts: [...parts] };
+    session.history.push(userTurn);
+
     // --- Mode Detection ---
     const acceptHeader = req.headers.get('accept');
     const shouldStream = streamRequest === true || acceptHeader === 'text/event-stream';
@@ -130,8 +135,18 @@ export async function POST(req: NextRequest) {
     const promptId = `prompt-${Date.now()}`;
     const abortController = new AbortController();
 
+    const appendModelTurn = (responseText: string) => {
+      session.history.push({ role: 'model', parts: [{ text: responseText }] });
+    };
+    const rollbackUserTurn = () => {
+      if (session.history[session.history.length - 1]?.role === 'user') {
+        session.history.pop();
+      }
+    };
+
     if (shouldStream) {
       const encoder = new TextEncoder();
+      let bufferedResponseText = '';
       const readableStream = new ReadableStream({
         async start(controller) {
           const sendEvent = (event: object) => {
@@ -159,6 +174,7 @@ export async function POST(req: NextRequest) {
                     logger.debug('Assistant message chunk', { delta: (event as any).delta });
                   }
                   if ((event as any).content) {
+                    bufferedResponseText += (event as any).content ?? '';
                     sendEvent({ type: 'MESSAGE', content: (event as any).content, delta: (event as any).delta });
                   }
                   break;
@@ -174,18 +190,22 @@ export async function POST(req: NextRequest) {
 
                 case JsonStreamEventType.ERROR:
                   logger.error('Stream error from model', { error: (event as any).message });
+                  rollbackUserTurn();
                   sendEvent({ type: 'ERROR', message: (event as any).message });
                   break;
 
                 case JsonStreamEventType.RESULT:
                   logger.info('Prompt completed', { status: (event as any).status });
+                  appendModelTurn(bufferedResponseText);
                   sendEvent({ type: 'RESULT', stats: (event as any).stats });
                   break;
               }
             }
-          } catch (err: any) {
-            logger.error('Stream execution failed', { error: err.message });
-            sendEvent({ type: 'ERROR', message: err.message });
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            logger.error('Stream execution failed', { error: errMsg });
+            rollbackUserTurn();
+            sendEvent({ type: 'ERROR', message: errMsg });
           } finally {
             controller.close();
           }
@@ -213,20 +233,24 @@ export async function POST(req: NextRequest) {
           if (event.type === JsonStreamEventType.MESSAGE) {
             responseText += (event as any).content || '';
           } else if (event.type === JsonStreamEventType.ERROR) {
+            rollbackUserTurn();
             throw new Error((event as any).message || 'Unknown stream error');
           }
         }
 
         if (responseText.trim() === '') {
+          rollbackUserTurn();
           throw new Error('Hub Error: CLI process returned no data.');
         }
 
+        appendModelTurn(responseText);
         return NextResponse.json({
           response: responseText,
           model: session.client.currentModel
         });
       } catch (err: any) {
         logger.error('Buffered execution failed', { error: err.message });
+        rollbackUserTurn();
         return NextResponse.json(
           { error: 'Failed to process prompt', details: err.message },
           { status: 500 }

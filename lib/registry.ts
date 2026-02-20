@@ -18,6 +18,12 @@ const log = createLogger('Hub/Registry');
 
 const DEFAULT_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || "gemini-3-flash-preview";
 
+/** One turn in the Hub-owned conversation history (user or model). */
+export type HistoryEntry = {
+  role: 'user' | 'model';
+  parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
+};
+
 log.info('DEFAULT_GEMINI_MODEL', { DEFAULT_GEMINI_MODEL });
 
 function timestamp(): string {
@@ -220,6 +226,8 @@ interface ProjectSession {
   initialized: boolean;
   /** Authorized folder path for this session (gatekeeper checks). */
   folderPath: string;
+  /** Explicit conversation history; source of truth to avoid core internal state mutation. */
+  history: HistoryEntry[];
 }
 
 class ClientRegistry {
@@ -265,7 +273,7 @@ class ClientRegistry {
 
       const client = new GeminiClient(config);
 
-      session = { client, config, initialized: false, folderPath: normalizedPath };
+      session = { client, config, initialized: false, folderPath: normalizedPath, history: [] };
       this.sessions.set(registryKey, session);
     } else {
       log.debug('Session cache hit', { folder: normalizedPath, sessionId, registryKey });
@@ -333,10 +341,8 @@ class ClientRegistry {
 
   public async resetSessionHistory(folderPath: string, sessionId?: string): Promise<void> {
     const session = await this.getSession(folderPath, sessionId);
-    log.info('Ephemeral reset: issuing clear command', { folder: folderPath });
-
-    // programmatically issue a "/clear" command to the underlying CLI engine
-    // to isolate the next prompt from previous context
+    log.info('Ephemeral reset: clearing explicit history and CLI chat', { folder: folderPath });
+    session.history.length = 0;
     await session.client.resetChat();
   }
 
@@ -416,16 +422,10 @@ class ClientRegistry {
     const sid = session.config.getSessionId();
     log.info('Switching model with state handover', { folder: folderPath, model, sessionId: sid });
 
-    // Step 1: Capture State
-    const history = session.client.getHistory();
-
-    // Step 2: Update Config
     session.config.setModel(model);
     session.client.currentModel = model;
-
-    // Step 3: Handover
     try {
-      await session.client.rebind(history);
+      await session.client.rebind(session.history as any);
     } catch (err) {
       log.error('Model switch handover failed', { error: err, sessionId: sid });
       throw err;
