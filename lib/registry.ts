@@ -1,10 +1,165 @@
-import { GeminiClient as CoreClient, Config, AuthType, OutputFormat } from "@google/gemini-cli-core";
+import {
+  GeminiClient as CoreClient,
+  Config,
+  AuthType,
+  OutputFormat,
+  JsonStreamEventType,
+  GeminiEventType,
+  type JsonStreamEvent,
+  type ServerGeminiStreamEvent,
+} from "@google/gemini-cli-core";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { scryptSync } from "node:crypto";
 import { createLogger } from "./logger";
 
 const log = createLogger('Hub/Registry');
+
+function timestamp(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * Converts a single ServerGeminiStreamEvent from the core into zero or more
+ * JsonStreamEvent objects for the public stream-json API.
+ */
+function* serverEventToJsonStreamEvents(
+  event: ServerGeminiStreamEvent,
+  sessionId: string
+): Generator<JsonStreamEvent> {
+  const ts = timestamp();
+  switch (event.type) {
+    case GeminiEventType.ModelInfo: {
+      yield {
+        type: JsonStreamEventType.INIT,
+        timestamp: ts,
+        session_id: sessionId,
+        model: (event as { value: string }).value,
+      };
+      break;
+    }
+    case GeminiEventType.Content: {
+      const e = event as { value: string };
+      yield {
+        type: JsonStreamEventType.MESSAGE,
+        timestamp: ts,
+        role: 'assistant' as const,
+        content: e.value,
+        delta: true,
+      };
+      break;
+    }
+    case GeminiEventType.Thought: {
+      const e = event as { value: { summary?: string } };
+      const text = e.value?.summary ?? '';
+      if (text) {
+        yield {
+          type: JsonStreamEventType.MESSAGE,
+          timestamp: ts,
+          role: 'assistant' as const,
+          content: text,
+          delta: true,
+        };
+      }
+      break;
+    }
+    case GeminiEventType.ToolCallRequest: {
+      const e = event as { value: { callId: string; name: string; args: Record<string, unknown> } };
+      yield {
+        type: JsonStreamEventType.TOOL_USE,
+        timestamp: ts,
+        tool_name: e.value.name,
+        tool_id: e.value.callId,
+        parameters: e.value.args ?? {},
+      };
+      break;
+    }
+    case GeminiEventType.ToolCallResponse: {
+      const e = event as { value: { callId: string; error?: Error } };
+      yield {
+        type: JsonStreamEventType.TOOL_RESULT,
+        timestamp: ts,
+        tool_id: e.value.callId,
+        status: e.value.error ? 'error' : 'success',
+        ...(e.value.error && {
+          error: { type: 'error', message: e.value.error.message },
+        }),
+      };
+      break;
+    }
+    case GeminiEventType.Error: {
+      const e = event as { value: { error: { message: string } } };
+      yield {
+        type: JsonStreamEventType.ERROR,
+        timestamp: ts,
+        severity: 'error' as const,
+        message: e.value?.error?.message ?? 'Unknown error',
+      };
+      break;
+    }
+    case GeminiEventType.Finished: {
+      const e = event as { value: { usageMetadata?: { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number } } };
+      const um = e.value?.usageMetadata;
+      yield {
+        type: JsonStreamEventType.RESULT,
+        timestamp: ts,
+        status: 'success' as const,
+        ...(um && {
+          stats: {
+            total_tokens: um.totalTokenCount ?? 0,
+            input_tokens: um.promptTokenCount ?? 0,
+            output_tokens: um.candidatesTokenCount ?? 0,
+            cached: 0,
+            input: um.promptTokenCount ?? 0,
+            duration_ms: 0,
+            tool_calls: 0,
+          },
+        }),
+      };
+      break;
+    }
+    case GeminiEventType.AgentExecutionStopped:
+    case GeminiEventType.AgentExecutionBlocked: {
+      const e = event as { value: { reason: string } };
+      yield {
+        type: JsonStreamEventType.ERROR,
+        timestamp: ts,
+        severity: 'error' as const,
+        message: e.value?.reason ?? 'Agent execution stopped',
+      };
+      break;
+    }
+    case GeminiEventType.UserCancelled: {
+      yield {
+        type: JsonStreamEventType.ERROR,
+        timestamp: ts,
+        severity: 'error' as const,
+        message: 'Request cancelled',
+      };
+      break;
+    }
+    case GeminiEventType.LoopDetected:
+    case GeminiEventType.MaxSessionTurns:
+    case GeminiEventType.ContextWindowWillOverflow:
+    case GeminiEventType.InvalidStream: {
+      yield {
+        type: JsonStreamEventType.ERROR,
+        timestamp: ts,
+        severity: 'error' as const,
+        message: event.type === GeminiEventType.LoopDetected
+          ? 'Loop detected'
+          : event.type === GeminiEventType.MaxSessionTurns
+            ? 'Max session turns reached'
+            : event.type === GeminiEventType.ContextWindowWillOverflow
+              ? 'Context window overflow'
+              : 'Invalid stream',
+      };
+      break;
+    }
+    default:
+      break;
+  }
+}
 
 /**
  * Enhanced GeminiClient with local state tracking for model switching.
@@ -35,6 +190,22 @@ class GeminiClient extends CoreClient {
     // @ts-ignore - resumeChat exists in CoreClient
     await this.resumeChat(history);
     this.updateSystemInstruction();
+  }
+
+  /**
+   * Streaming execution using the core sendMessageStream API.
+   * Converts ServerGeminiStreamEvent to JsonStreamEvent for alignment with the public stream-json format.
+   */
+  public async *prompt(parts: any[], options: { signal: AbortSignal; promptId?: string; sessionId?: string }) {
+    const promptId = options.promptId || `prompt-${Date.now()}`;
+    const sessionId = options.sessionId ?? promptId;
+    const stream = this.sendMessageStream(parts, options.signal, promptId);
+
+    for await (const event of stream) {
+      for (const jsonEvent of serverEventToJsonStreamEvents(event, sessionId)) {
+        yield jsonEvent;
+      }
+    }
   }
 }
 

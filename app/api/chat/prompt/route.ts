@@ -61,12 +61,13 @@ function buildPromptParts(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { folderPath, sessionId, message, images, ephemeral } = body as {
+    const { folderPath, sessionId, message, images, ephemeral, stream: streamRequest } = body as {
       folderPath: string;
       sessionId?: string;
       message?: string;
       images?: ImagePayload[];
       ephemeral?: boolean;
+      stream?: boolean;
     };
 
     if (!folderPath) {
@@ -109,8 +110,7 @@ export async function POST(req: NextRequest) {
 
     // --- Mode Detection ---
     const acceptHeader = req.headers.get('accept');
-    const streamParam = req.nextUrl.searchParams.get('stream');
-    const shouldStream = acceptHeader === 'text/event-stream' || streamParam === 'true';
+    const shouldStream = streamRequest === true || acceptHeader === 'text/event-stream';
 
     const promptId = `prompt-${Date.now()}`;
     const abortController = new AbortController();
@@ -124,38 +124,46 @@ export async function POST(req: NextRequest) {
           };
 
           try {
-            const stream = session.client.sendMessageStream(
-              parts,
-              abortController.signal,
+            const stream = session.client.prompt(parts, {
+              signal: abortController.signal,
               promptId,
-            );
+              sessionId: session.config.getSessionId(),
+            });
 
-            for await (const event of (stream as any)) {
+            for await (const event of stream) {
               logger.debug('Stream event', { type: event.type });
 
               switch (event.type) {
+                case JsonStreamEventType.INIT:
+                  logger.info('Stream initialized', { model: (event as any).model });
+                  sendEvent(event);
+                  break;
+
                 case JsonStreamEventType.MESSAGE:
-                  if (event.content) {
-                    sendEvent({ type: 'MESSAGE', content: event.content, delta: event.delta });
+                  if ((event as any).role === 'assistant') {
+                    logger.debug('Assistant message chunk', { delta: (event as any).delta });
+                  }
+                  if ((event as any).content) {
+                    sendEvent({ type: 'MESSAGE', content: (event as any).content, delta: (event as any).delta });
                   }
                   break;
 
                 case JsonStreamEventType.TOOL_USE:
-                  logger.info('Tool use detected', { tool: event.tool_name });
+                  logger.info('Tool use detected', { tool: (event as any).tool_name });
                   sendEvent({
                     type: 'THOUGHT',
-                    content: `[Tool Use: ${event.tool_name}] executing with parameters...`,
+                    content: `[Tool Use: ${(event as any).tool_name}] executing with parameters...`,
                   });
                   break;
 
                 case JsonStreamEventType.ERROR:
-                  logger.error('Stream error from model', { error: event.message });
-                  sendEvent({ type: 'ERROR', message: event.message });
+                  logger.error('Stream error from model', { error: (event as any).message });
+                  sendEvent({ type: 'ERROR', message: (event as any).message });
                   break;
 
                 case JsonStreamEventType.RESULT:
-                  logger.info('Prompt completed', { status: event.status });
-                  sendEvent({ type: 'RESULT', stats: event.stats });
+                  logger.info('Prompt completed', { status: (event as any).status });
+                  sendEvent({ type: 'RESULT', stats: (event as any).stats });
                   break;
               }
             }
@@ -177,19 +185,19 @@ export async function POST(req: NextRequest) {
       });
     } else {
       // --- Buffered Response (Backwards Compatibility) ---
-      let responseText = '';
       try {
-        const stream = session.client.sendMessageStream(
-          parts,
-          abortController.signal,
+        let responseText = '';
+        const stream = session.client.prompt(parts, {
+          signal: abortController.signal,
           promptId,
-        );
+          sessionId: session.config.getSessionId(),
+        });
 
-        for await (const event of (stream as any)) {
+        for await (const event of stream) {
           if (event.type === JsonStreamEventType.MESSAGE) {
-            responseText += event.content;
+            responseText += (event as any).content || '';
           } else if (event.type === JsonStreamEventType.ERROR) {
-            throw new Error(event.message);
+            throw new Error((event as any).message || 'Unknown stream error');
           }
         }
 
