@@ -107,69 +107,108 @@ export async function POST(req: NextRequest) {
     const parts = buildPromptParts(message, images, compositeBase64);
     logger.debug(`Sending prompt: ${parts.length} part(s)`);
 
-    // --- Send message & stream (SSE) ---
+    // --- Mode Detection ---
+    const acceptHeader = req.headers.get('accept');
+    const streamParam = req.nextUrl.searchParams.get('stream');
+    const shouldStream = acceptHeader === 'text/event-stream' || streamParam === 'true';
+
     const promptId = `prompt-${Date.now()}`;
     const abortController = new AbortController();
-    const encoder = new TextEncoder();
 
-    const readableStream = new ReadableStream({
-      async start(controller) {
-        const sendEvent = (event: any) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        };
+    if (shouldStream) {
+      const encoder = new TextEncoder();
+      const readableStream = new ReadableStream({
+        async start(controller) {
+          const sendEvent = (event: any) => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          };
 
-        try {
-          const stream = session.client.sendMessageStream(
-            parts,
-            abortController.signal,
-            promptId,
-          );
+          try {
+            const stream = session.client.sendMessageStream(
+              parts,
+              abortController.signal,
+              promptId,
+            );
 
-          for await (const event of (stream as any)) {
-            logger.debug('Stream event', { type: event.type });
+            for await (const event of (stream as any)) {
+              logger.debug('Stream event', { type: event.type });
 
-            switch (event.type) {
-              case JsonStreamEventType.MESSAGE:
-                if (event.content) {
-                  sendEvent({ type: 'MESSAGE', content: event.content, delta: event.delta });
-                }
-                break;
+              switch (event.type) {
+                case JsonStreamEventType.MESSAGE:
+                  if (event.content) {
+                    sendEvent({ type: 'MESSAGE', content: event.content, delta: event.delta });
+                  }
+                  break;
 
-              case JsonStreamEventType.TOOL_USE:
-                logger.info('Tool use detected', { tool: event.tool_name });
-                sendEvent({
-                  type: 'THOUGHT',
-                  content: `[Tool Use: ${event.tool_name}] executing with parameters...`,
-                });
-                break;
+                case JsonStreamEventType.TOOL_USE:
+                  logger.info('Tool use detected', { tool: event.tool_name });
+                  sendEvent({
+                    type: 'THOUGHT',
+                    content: `[Tool Use: ${event.tool_name}] executing with parameters...`,
+                  });
+                  break;
 
-              case JsonStreamEventType.ERROR:
-                logger.error('Stream error from model', { error: event.message });
-                sendEvent({ type: 'ERROR', message: event.message });
-                break;
+                case JsonStreamEventType.ERROR:
+                  logger.error('Stream error from model', { error: event.message });
+                  sendEvent({ type: 'ERROR', message: event.message });
+                  break;
 
-              case JsonStreamEventType.RESULT:
-                logger.info('Prompt completed', { status: event.status });
-                sendEvent({ type: 'RESULT', stats: event.stats });
-                break;
+                case JsonStreamEventType.RESULT:
+                  logger.info('Prompt completed', { status: event.status });
+                  sendEvent({ type: 'RESULT', stats: event.stats });
+                  break;
+              }
             }
+          } catch (err: any) {
+            logger.error('Stream execution failed', { error: err.message });
+            sendEvent({ type: 'ERROR', message: err.message });
+          } finally {
+            controller.close();
           }
-        } catch (err: any) {
-          logger.error('Stream execution failed', { error: err.message });
-          sendEvent({ type: 'ERROR', message: err.message });
-        } finally {
-          controller.close();
-        }
-      },
-    });
+        },
+      });
 
-    return new NextResponse(readableStream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    });
+      return new NextResponse(readableStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      });
+    } else {
+      // --- Buffered Response (Backwards Compatibility) ---
+      let responseText = '';
+      try {
+        const stream = session.client.sendMessageStream(
+          parts,
+          abortController.signal,
+          promptId,
+        );
+
+        for await (const event of (stream as any)) {
+          if (event.type === JsonStreamEventType.MESSAGE) {
+            responseText += event.content;
+          } else if (event.type === JsonStreamEventType.ERROR) {
+            throw new Error(event.message);
+          }
+        }
+
+        if (responseText.trim() === '') {
+          throw new Error('Hub Error: CLI process returned no data.');
+        }
+
+        return NextResponse.json({
+          response: responseText,
+          model: session.client.currentModel
+        });
+      } catch (err: any) {
+        logger.error('Buffered execution failed', { error: err.message });
+        return NextResponse.json(
+          { error: 'Failed to process prompt', details: err.message },
+          { status: 500 }
+        );
+      }
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'Service Warming Up') {
