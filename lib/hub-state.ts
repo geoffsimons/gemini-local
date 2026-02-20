@@ -131,6 +131,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
+  thought?: string;
   images?: string[]; // base64 data URIs for user-attached previews
   timestamp: number;
 }
@@ -169,19 +170,79 @@ export function useChat() {
           }),
         });
 
-        const data = await res.json();
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.error || "Failed to fetch");
+        }
+
+        if (!res.body) throw new Error("No response body");
+
+        const assistantId = `msg-${++idCounter.current}`;
         const assistantMsg: ChatMessage = {
-          id: `msg-${++idCounter.current}`,
+          id: assistantId,
           role: "assistant",
-          text: data.response ?? data.error ?? "No response received.",
+          text: "",
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
-      } catch {
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        let partialData = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          partialData += chunk;
+
+          const lines = partialData.split("\n\n");
+          partialData = lines.pop() || "";
+
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine.startsWith("data: ")) continue;
+
+            try {
+              const event = JSON.parse(cleanLine.slice(6));
+
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (m.id !== assistantId) return m;
+
+                  switch (event.type) {
+                    case "MESSAGE":
+                      return {
+                        ...m,
+                        text: event.delta ? m.text + event.content : event.content,
+                      };
+                    case "THOUGHT":
+                      return {
+                        ...m,
+                        thought: (m.thought || "") + event.content + "\n",
+                      };
+                    case "ERROR":
+                      return {
+                        ...m,
+                        text: m.text + `\n\n[Error: ${event.message}]`,
+                      };
+                    default:
+                      return m;
+                  }
+                }),
+              );
+            } catch (err) {
+              console.error("Failed to parse SSE event", err);
+            }
+          }
+        }
+      } catch (err: any) {
         const errorMsg: ChatMessage = {
           id: `msg-${++idCounter.current}`,
           role: "assistant",
-          text: "Error: Failed to reach the server.",
+          text: `Error: ${err.message || "Failed to reach the server."}`,
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, errorMsg]);

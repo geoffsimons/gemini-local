@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
 import { createLogger } from "@/lib/logger";
 import { cleanBase64, stitchImages } from "@/lib/images";
-import { GeminiEventType } from "@google/gemini-cli-core";
+import { JsonStreamEventType } from "@google/gemini-cli-core";
 import path from "path";
 
 const logger = createLogger('Hub/API/Chat');
@@ -107,41 +107,69 @@ export async function POST(req: NextRequest) {
     const parts = buildPromptParts(message, images, compositeBase64);
     logger.debug(`Sending prompt: ${parts.length} part(s)`);
 
-    // --- Send message & aggregate (ported aggregation logic) ---
+    // --- Send message & stream (SSE) ---
     const promptId = `prompt-${Date.now()}`;
     const abortController = new AbortController();
+    const encoder = new TextEncoder();
 
-    const stream = session.client.sendMessageStream(
-      parts,
-      abortController.signal,
-      promptId,
-    );
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        const sendEvent = (event: any) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        };
 
-    let responseText = '';
-    for await (const event of stream) {
-      logger.debug('Stream event', { event });
-      if (event.type === GeminiEventType.Content) {
-        responseText += event.value;
-      } else if (event.type === GeminiEventType.Error) {
-        const errMsg = event.value.error.message;
-        logger.error('Stream error from model', { error: errMsg });
-        return NextResponse.json(
-          { error: 'Model returned an error', details: errMsg },
-          { status: 500 },
-        );
-      }
-    }
+        try {
+          const stream = session.client.sendMessageStream(
+            parts,
+            abortController.signal,
+            promptId,
+          );
 
-    if (responseText.trim() === '') {
-      logger.error('CLI process returned no data', { folder: resolvedPath });
-      return NextResponse.json(
-        { error: 'Hub Error: CLI process returned no data.' },
-        { status: 500 },
-      );
-    }
+          for await (const event of (stream as any)) {
+            logger.debug('Stream event', { type: event.type });
 
-    logger.info('Prompt completed', { chars: responseText.length });
-    return NextResponse.json({ response: responseText });
+            switch (event.type) {
+              case JsonStreamEventType.MESSAGE:
+                if (event.content) {
+                  sendEvent({ type: 'MESSAGE', content: event.content, delta: event.delta });
+                }
+                break;
+
+              case JsonStreamEventType.TOOL_USE:
+                logger.info('Tool use detected', { tool: event.tool_name });
+                sendEvent({
+                  type: 'THOUGHT',
+                  content: `[Tool Use: ${event.tool_name}] executing with parameters...`,
+                });
+                break;
+
+              case JsonStreamEventType.ERROR:
+                logger.error('Stream error from model', { error: event.message });
+                sendEvent({ type: 'ERROR', message: event.message });
+                break;
+
+              case JsonStreamEventType.RESULT:
+                logger.info('Prompt completed', { status: event.status });
+                sendEvent({ type: 'RESULT', stats: event.stats });
+                break;
+            }
+          }
+        } catch (err: any) {
+          logger.error('Stream execution failed', { error: err.message });
+          sendEvent({ type: 'ERROR', message: err.message });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new NextResponse(readableStream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'Service Warming Up') {

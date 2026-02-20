@@ -1,4 +1,4 @@
-import { GeminiClient as CoreClient, Config, AuthType } from "@google/gemini-cli-core";
+import { GeminiClient as CoreClient, Config, AuthType, OutputFormat } from "@google/gemini-cli-core";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { scryptSync } from "node:crypto";
@@ -73,6 +73,9 @@ class ClientRegistry {
         cwd: normalizedPath,
         debugMode: false,
         interactive: false, // Essential: prevents the CLI from trying to hijack the terminal
+        output: {
+          format: OutputFormat.STREAM_JSON,
+        },
       });
 
       const client = new GeminiClient(config);

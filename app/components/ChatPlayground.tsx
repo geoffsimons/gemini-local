@@ -534,6 +534,17 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-surface-2 text-text-primary"
         }`}
       >
+        {/* Thought metadata (Thinking UI block) */}
+        {!isUser && message.thought && (
+          <div className="mb-3 border-l-2 border-accent/40 bg-accent/5 px-3 py-1.5 font-mono text-[10px] italic leading-tight text-text-muted">
+            <div className="mb-1 flex items-center gap-1.5 uppercase tracking-widest opacity-60">
+              <Bot size={10} />
+              Thinking
+            </div>
+            {message.thought}
+          </div>
+        )}
+
         {/* Image previews */}
         {message.images && message.images.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
