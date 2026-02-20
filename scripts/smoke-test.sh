@@ -31,12 +31,12 @@ bold "  Project: $TEST_PROJECT"
 bold "============================================"
 
 # 1. Health Check
-bold "[1/8] Health Check"
+bold "[1/9] Health Check"
 curl -sf "$HUB_URL/health" > /dev/null || (red "Hub offline"; exit 1)
 green "  PASS: Hub is online"
 
 # 2. Warm-up (trust test project then start)
-bold "[2/8] Initializing Sandbox..."
+bold "[2/9] Initializing Sandbox..."
 curl -s -X POST "$HUB_URL/registry/add" \
      -H "Content-Type: application/json" \
      -d "{\"folderPath\": \"$TEST_PROJECT\"}" > /dev/null
@@ -46,7 +46,7 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start"
 [ "$HTTP_CODE" -eq 200 ] && green "  PASS: Sandbox warmed up" || (red "  FAIL: HTTP $HTTP_CODE"; exit 1)
 
 # 3. Context & Memory Test (retry up to 3x for transient API/stream issues)
-bold "[3/8] Verifying GEMINI.md Injection..."
+bold "[3/9] Verifying GEMINI.md Injection..."
 STEP3_PASSED=0
 for attempt in 1 2 3; do
   RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 60 -X POST "$HUB_URL/chat/prompt" \
@@ -71,7 +71,7 @@ else
 fi
 
 # 4. Negative Test (Nonexistent folder)
-bold "[4/8] Validating Ghost Folder Rejection..."
+bold "[4/9] Validating Ghost Folder Rejection..."
 GHOST_PATH="/tmp/should-not-exist-$(date +%s)"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start" \
      -H "Content-Type: application/json" \
@@ -79,7 +79,7 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start"
 [ "$HTTP_CODE" -ge 400 ] && green "  PASS: Rejected ghost folder" || (red "  FAIL: Accepted non-existent folder"; exit 1)
 
 # 5. Session Clear
-bold "[5/8] Session Clear..."
+bold "[5/9] Session Clear..."
 curl -s -X POST "$HUB_URL/chat/prompt" -H "Content-Type: application/json" \
      -d "{\"folderPath\": \"$TEST_PROJECT\", \"message\": \"My name is HubTest. Remember it.\"}" > /dev/null
 curl -s -X POST "$HUB_URL/chat/clear" -H "Content-Type: application/json" \
@@ -99,17 +99,26 @@ TEXT=$(echo "$RESPONSE" | jq -r '.response' | tr '[:upper:]' '[:lower:]')
 [[ "$TEXT" == *"ff0000"* ]] && green "  PASS: Image identified correctly" || (red "  FAIL: Visual mismatch: $TEXT"; exit 1)
 
 # 7. Governance Lifecycle
-bold "[7/8] Governance & Trust Lifecycle"
+bold "[7/9] Governance & Trust Lifecycle"
 GOVERNANCE_PROJECT=$(mktemp -d -t gemini-gov.XXXXXX)
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start" \
      -H "Content-Type: application/json" -d "{\"folderPath\": \"$GOVERNANCE_PROJECT\"}")
 [ "$HTTP_CODE" -ge 400 ] && green "  PASS: Untrusted folder blocked" || (red "  FAIL: Security bypass"; exit 1)
 
 # 8. Model Orchestration
-bold "[8/8] Model Orchestration & Discovery"
+bold "[8/9] Model Orchestration & Discovery"
 MODELS=$(curl -s "$HUB_URL/models")
 FIRST=$(echo "$MODELS" | jq -r '.[0]')
 if [[ "$FIRST" == *"3.1"* ]]; then green "  PASS: 3.1 Pro is active"; else bold "  Note: Using $FIRST"; fi
+
+# 9. Agentic Stream Validation
+bold "[9/9] Agentic Stream Validation"
+if npx tsx scripts/test-stream.ts "$TEST_PROJECT"; then
+  green "  PASS: Streaming verified"
+else
+  red "  FAIL"
+  exit 1
+fi
 
 bold "============================================"
 green "  ALL TESTS PASSED"
