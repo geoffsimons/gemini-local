@@ -60,10 +60,10 @@ async function run(): Promise<void> {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed.startsWith('data: ')) continue;
+        if (!trimmed) continue;
+        const json = trimmed.startsWith('data: ') ? trimmed.slice(6).trim() : trimmed;
+        if (json === '[DONE]' || json === '') continue;
         try {
-          const json = trimmed.slice(6);
-          if (json === '[DONE]' || json === '') continue;
           const event = JSON.parse(json) as { type?: string; content?: unknown };
           const t = event.type?.toUpperCase();
           if (t === 'INIT') gotInit = true;
@@ -75,17 +75,18 @@ async function run(): Promise<void> {
     }
 
     // drain remainder
-    if (buffer.trim().startsWith('data: ')) {
-      try {
-        const json = buffer.trim().slice(6);
-        if (json !== '[DONE]' && json !== '') {
+    const remainder = buffer.trim();
+    if (remainder) {
+      const json = remainder.startsWith('data: ') ? remainder.slice(6).trim() : remainder;
+      if (json !== '[DONE]' && json !== '') {
+        try {
           const event = JSON.parse(json) as { type?: string; content?: unknown };
           const t = event.type?.toUpperCase();
           if (t === 'INIT') gotInit = true;
           if (t === 'MESSAGE' && event.content != null) gotMessageWithContent = true;
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
     }
 
