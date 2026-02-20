@@ -152,6 +152,7 @@ export function useChat() {
   const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
   const [yoloMode, setYoloModeState] = useState(false);
   const idCounter = useRef(0);
+  const lastStreamingAssistantIdRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
     async (
@@ -193,6 +194,7 @@ export function useChat() {
         if (!res.body) throw new Error("No response body");
 
         const assistantId = `msg-${++idCounter.current}`;
+        lastStreamingAssistantIdRef.current = assistantId;
         const assistantMsg: ChatMessage = {
           id: assistantId,
           role: "assistant",
@@ -345,17 +347,190 @@ export function useChat() {
     setPendingToolCall(null);
   }, []);
 
-  const onApproveToolCall = useCallback(() => {
-    setPendingToolCall(null);
-    setThinkingState(null);
-    addSystemMessage("Tool call approved. Execution not yet implemented.");
-  }, [addSystemMessage]);
+  const onApproveToolCall = useCallback(
+    async (folderPath: string) => {
+      const tool = pendingToolCall;
+      if (!tool || !folderPath) return;
 
-  const onRejectToolCall = useCallback(() => {
-    setPendingToolCall(null);
-    setThinkingState(null);
-    addSystemMessage("Tool call rejected by user.");
-  }, [addSystemMessage]);
+      const lastAssistantId = lastStreamingAssistantIdRef.current;
+      setPendingToolCall(null);
+      setThinkingState(null);
+      setSending(true);
+
+      try {
+        const res = await fetch("/api/chat/tool", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            folderPath,
+            toolCall: {
+              id: tool.tool_id ?? `call-${Date.now()}`,
+              name: tool.tool_name,
+              args: tool.parameters ?? {},
+            },
+            approved: true,
+            stream: true,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as { error?: string }).error ?? "Tool request failed");
+        }
+        if (!res.body) throw new Error("No response body");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const event = JSON.parse(trimmed) as {
+                type: string;
+                content?: string;
+                delta?: boolean;
+                message?: string;
+              };
+              if (event.type === "MESSAGE" && lastAssistantId) {
+                if (event.delta) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === lastAssistantId
+                        ? { ...m, text: m.text + (event.content ?? "") }
+                        : m,
+                    ),
+                  );
+                } else if (event.content !== undefined) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === lastAssistantId ? { ...m, text: event.content ?? "" } : m,
+                    ),
+                  );
+                }
+              } else if (event.type === "ERROR" && event.message && lastAssistantId) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === lastAssistantId
+                      ? { ...m, text: m.text + `\n\n[Error: ${event.message}]` }
+                      : m,
+                  ),
+                );
+              } else if (event.type === "RESULT" || event.type === "ERROR") {
+                setThinkingState(null);
+              }
+            } catch {
+              // ignore parse errors
+            }
+          }
+        }
+      } catch (err: any) {
+        setThinkingState(null);
+        addSystemMessage(`Tool error: ${err.message ?? "Request failed"}`);
+      } finally {
+        setSending(false);
+      }
+    },
+    [pendingToolCall, addSystemMessage],
+  );
+
+  const onRejectToolCall = useCallback(
+    async (folderPath: string) => {
+      const tool = pendingToolCall;
+      if (!tool || !folderPath) return;
+
+      const lastAssistantId = lastStreamingAssistantIdRef.current;
+      setPendingToolCall(null);
+      setThinkingState(null);
+      setSending(true);
+
+      try {
+        const res = await fetch("/api/chat/tool", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            folderPath,
+            toolCall: {
+              id: tool.tool_id ?? `call-${Date.now()}`,
+              name: tool.tool_name,
+              args: tool.parameters ?? {},
+            },
+            approved: false,
+            stream: true,
+          }),
+        });
+
+        if (!res.ok) {
+          setSending(false);
+          addSystemMessage("Tool rejection request failed.");
+          return;
+        }
+        if (!res.body) {
+          setSending(false);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const event = JSON.parse(trimmed) as {
+                type: string;
+                content?: string;
+                delta?: boolean;
+                message?: string;
+              };
+              if (event.type === "MESSAGE" && lastAssistantId) {
+                if (event.delta) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === lastAssistantId
+                        ? { ...m, text: m.text + (event.content ?? "") }
+                        : m,
+                    ),
+                  );
+                } else if (event.content !== undefined) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === lastAssistantId ? { ...m, text: event.content ?? "" } : m,
+                    ),
+                  );
+                }
+              } else if (event.type === "RESULT" || event.type === "ERROR") {
+                setThinkingState(null);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch {
+        addSystemMessage("Tool rejection request failed.");
+      } finally {
+        setSending(false);
+      }
+    },
+    [pendingToolCall, addSystemMessage],
+  );
 
   return {
     messages,

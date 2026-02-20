@@ -183,6 +183,16 @@ export async function POST(req: NextRequest) {
                 case JsonStreamEventType.TOOL_USE: {
                   const toolEvent = event as { tool_name: string; parameters?: Record<string, unknown>; tool_id?: string };
                   if (!session.yoloMode) {
+                    session.history.push({
+                      role: 'model',
+                      parts: [{
+                        functionCall: {
+                          id: toolEvent.tool_id ?? `call-${Date.now()}`,
+                          name: toolEvent.tool_name,
+                          args: toolEvent.parameters ?? {},
+                        },
+                      }],
+                    } as any);
                     sendEvent({
                       type: 'TOOL_USE',
                       tool_name: toolEvent.tool_name,

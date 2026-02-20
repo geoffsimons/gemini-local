@@ -43,8 +43,8 @@ interface ChatPlaygroundProps {
   thinkingState: string | null;
   activeModel: string | null;
   pendingToolCall: PendingToolCall | null;
-  onApproveToolCall: () => void;
-  onRejectToolCall: () => void;
+  onApproveToolCall: (folderPath: string) => void | Promise<void>;
+  onRejectToolCall: (folderPath: string) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,16 +404,18 @@ export default function ChatPlayground({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={onApproveToolCall}
-                    className="flex items-center gap-1.5 rounded bg-accent px-2.5 py-1.5 font-mono text-[11px] text-white transition-colors hover:bg-accent-hover"
+                    onClick={() => activeFolder && onApproveToolCall(activeFolder)}
+                    disabled={!activeFolder || sending}
+                    className="flex items-center gap-1.5 rounded bg-accent px-2.5 py-1.5 font-mono text-[11px] text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                   >
                     <Check size={12} />
                     Approve
                   </button>
                   <button
                     type="button"
-                    onClick={onRejectToolCall}
-                    className="flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary transition-colors hover:bg-surface-3"
+                    onClick={() => activeFolder && onRejectToolCall(activeFolder)}
+                    disabled={!activeFolder || sending}
+                    className="flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary transition-colors hover:bg-surface-3 disabled:opacity-50"
                   >
                     <XCircle size={12} />
                     Reject
