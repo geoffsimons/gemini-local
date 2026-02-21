@@ -18,10 +18,18 @@ const log = createLogger('Hub/Registry');
 
 const DEFAULT_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || "gemini-3-flash-preview";
 
-/** One turn in the Hub-owned conversation history (user or model). */
+/**
+ * One turn in the Hub-owned conversation history (user or model).
+ * Strict sequence for tool flows: user (prompt) -> model (functionCall) -> user (functionResponse).
+ * The functionResponse id MUST match the preceding functionCall id (callId) for the Gemini API.
+ */
 export type HistoryEntry = {
   role: 'user' | 'model';
-  parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
+  parts: Array<
+    | { text?: string; inlineData?: { mimeType: string; data: string } }
+    | { functionCall: { id: string; name: string; args: Record<string, unknown> } }
+    | { functionResponse: { id: string; name: string; response: { output?: string; error?: string } } }
+  >;
 };
 
 log.info('DEFAULT_GEMINI_MODEL', { DEFAULT_GEMINI_MODEL });

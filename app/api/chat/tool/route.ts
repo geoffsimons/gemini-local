@@ -88,6 +88,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const callId = toolCall.id;
+    logger.info("Tool fulfillment received", {
+      callId,
+      toolName: toolCall.name,
+      approved: Boolean(approved),
+    });
+
     const resolvedPath = path.resolve(folderPath);
 
     if (!(await isFolderTrusted(resolvedPath))) {
@@ -108,10 +115,31 @@ export async function POST(req: NextRequest) {
 
     const responseParts = convertToFunctionResponse(
       toolCall.name,
-      toolCall.id,
+      callId,
       output,
       session.client.currentModel,
     );
+    logger.debug("FunctionResponse built for Gemini API", { callId, toolName: toolCall.name });
+
+    const lastTurn = session.history[session.history.length - 1];
+    const lastIsModelWithMatchingCall =
+      lastTurn?.role === "model" &&
+      (lastTurn as any).parts?.some?.(
+        (p: any) => p?.functionCall?.id === callId,
+      );
+    if (!lastIsModelWithMatchingCall) {
+      session.history.push({
+        role: "model",
+        parts: [{
+          functionCall: {
+            id: callId,
+            name: toolCall.name,
+            args,
+          },
+        }],
+      } as any);
+      logger.info("Injected missing model turn before functionResponse", { callId });
+    }
 
     session.client.setHistory(session.history as any);
 
@@ -136,6 +164,7 @@ export async function POST(req: NextRequest) {
           };
 
           try {
+            logger.debug("Calling client.prompt with functionResponse", { callId });
             const stream = session.client.prompt(responseParts, {
               signal: abortController.signal,
               promptId,
@@ -162,12 +191,23 @@ export async function POST(req: NextRequest) {
                     parameters?: Record<string, unknown>;
                     tool_id?: string;
                   };
+                  const nextCallId = toolEvent.tool_id ?? `call-${Date.now()}`;
+                  if (!toolEvent.tool_id) {
+                    logger.warn("TOOL_USE event missing tool_id; using fallback", {
+                      tool_name: toolEvent.tool_name,
+                      fallbackId: nextCallId,
+                    });
+                  }
                   if (!session.yoloMode) {
+                    logger.info("Stream yielded TOOL_USE (pause for approval)", {
+                      callId: nextCallId,
+                      tool_name: toolEvent.tool_name,
+                    });
                     session.history.push({
                       role: "model",
                       parts: [{
                         functionCall: {
-                          id: toolEvent.tool_id ?? `call-${Date.now()}`,
+                          id: nextCallId,
                           name: toolEvent.tool_name,
                           args: toolEvent.parameters ?? {},
                         },
@@ -177,7 +217,7 @@ export async function POST(req: NextRequest) {
                       type: "TOOL_USE",
                       tool_name: toolEvent.tool_name,
                       parameters: toolEvent.parameters ?? {},
-                      ...(toolEvent.tool_id && { tool_id: toolEvent.tool_id }),
+                      tool_id: nextCallId,
                     });
                     controller.close();
                     return;

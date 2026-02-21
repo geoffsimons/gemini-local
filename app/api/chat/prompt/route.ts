@@ -171,6 +171,7 @@ export async function POST(req: NextRequest) {
                   break;
 
                 case JsonStreamEventType.MESSAGE:
+                  logger.debug('Message event', { event });
                   if ((event as any).role === 'assistant') {
                     logger.debug('Assistant message chunk', { delta: (event as any).delta });
                   }
@@ -182,12 +183,20 @@ export async function POST(req: NextRequest) {
 
                 case JsonStreamEventType.TOOL_USE: {
                   const toolEvent = event as { tool_name: string; parameters?: Record<string, unknown>; tool_id?: string };
+                  const callId = toolEvent.tool_id ?? `call-${Date.now()}`;
+                  if (!toolEvent.tool_id) {
+                    logger.warn("TOOL_USE event missing tool_id; fallback may break round-trip", {
+                      tool_name: toolEvent.tool_name,
+                      fallbackId: callId,
+                    });
+                  }
                   if (!session.yoloMode) {
+                    logger.info("Pausing stream for tool approval", { callId, tool_name: toolEvent.tool_name });
                     session.history.push({
                       role: 'model',
                       parts: [{
                         functionCall: {
-                          id: toolEvent.tool_id ?? `call-${Date.now()}`,
+                          id: callId,
                           name: toolEvent.tool_name,
                           args: toolEvent.parameters ?? {},
                         },
@@ -197,7 +206,7 @@ export async function POST(req: NextRequest) {
                       type: 'TOOL_USE',
                       tool_name: toolEvent.tool_name,
                       parameters: toolEvent.parameters ?? {},
-                      ...(toolEvent.tool_id && { tool_id: toolEvent.tool_id }),
+                      tool_id: callId,
                     });
                     controller.close();
                     return;
@@ -214,6 +223,7 @@ export async function POST(req: NextRequest) {
 
                 case JsonStreamEventType.RESULT:
                   logger.info('Prompt completed', { status: (event as any).status });
+                  logger.debug('response text', { responseText: bufferedResponseText });
                   appendModelTurn(bufferedResponseText);
                   sendEvent({ type: 'RESULT', stats: (event as any).stats });
                   break;
