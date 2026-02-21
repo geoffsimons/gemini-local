@@ -210,7 +210,6 @@ export async function POST(req: NextRequest) {
                     logger.error('Stream error from model', { error: (event as any).message });
                     rollbackUserTurn();
                     sendEvent({ type: 'ERROR', message: (event as any).message });
-                    controller.close();
                     return;
 
                   case JsonStreamEventType.RESULT:
@@ -253,7 +252,6 @@ export async function POST(req: NextRequest) {
                   });
                 }
                 sendEvent({ type: 'RESULT', stats: resultStats });
-                controller.close();
                 return;
               }
 
@@ -300,7 +298,11 @@ export async function POST(req: NextRequest) {
             rollbackUserTurn();
             sendEvent({ type: 'ERROR', message: errMsg });
           } finally {
-            controller.close();
+            try {
+              controller.close();
+            } catch (e) {
+              if (!(e instanceof TypeError)) throw e;
+            }
           }
         },
       });
