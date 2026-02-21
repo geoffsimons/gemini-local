@@ -153,6 +153,7 @@ export function useChat() {
   const [yoloMode, setYoloModeState] = useState(false);
   const idCounter = useRef(0);
   const lastStreamingAssistantIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
     async (
@@ -174,10 +175,14 @@ export function useChat() {
       setThinkingState(null);
       setPendingToolCall(null);
 
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       try {
         const res = await fetch("/api/chat/prompt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             folderPath,
             message: text || undefined,
@@ -303,13 +308,19 @@ export function useChat() {
         }
       } catch (err: any) {
         setThinkingState(null);
-        const errorMsg: ChatMessage = {
-          id: `msg-${++idCounter.current}`,
-          role: "assistant",
-          text: `Error: ${err.message || "Failed to reach the server."}`,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, errorMsg]);
+        const isAbort =
+          err?.name === "AbortError" ||
+          (typeof err?.message === "string" &&
+            (err.message.includes("aborted") || err.message.includes("The user aborted a request")));
+        if (!isAbort) {
+          const errorMsg: ChatMessage = {
+            id: `msg-${++idCounter.current}`,
+            role: "assistant",
+            text: `Error: ${err.message || "Failed to reach the server."}`,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, errorMsg]);
+        }
       } finally {
         setSending(false);
       }
@@ -360,6 +371,13 @@ export function useChat() {
     [],
   );
 
+  const stopGeneration = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setSending(false);
+    setThinkingState(null);
+  }, []);
+
   const clearPendingToolCall = useCallback(() => {
     setPendingToolCall(null);
   }, []);
@@ -374,10 +392,14 @@ export function useChat() {
       setThinkingState(null);
       setSending(true);
 
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       try {
         const res = await fetch("/api/chat/tool", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             folderPath,
             toolCalls: tools.map((t, i) => ({
@@ -473,7 +495,13 @@ export function useChat() {
         if (remainder) processLine(remainder);
       } catch (err: any) {
         setThinkingState(null);
-        addSystemMessage(`Tool error: ${err.message ?? "Request failed"}`);
+        const isAbort =
+          err?.name === "AbortError" ||
+          (typeof err?.message === "string" &&
+            (err.message.includes("aborted") || err.message.includes("The user aborted a request")));
+        if (!isAbort) {
+          addSystemMessage(`Tool error: ${err.message ?? "Request failed"}`);
+        }
       } finally {
         setSending(false);
       }
@@ -491,10 +519,14 @@ export function useChat() {
       setThinkingState(null);
       setSending(true);
 
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       try {
         const res = await fetch("/api/chat/tool", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             folderPath,
             toolCalls: tools.map((t, i) => ({
@@ -584,8 +616,14 @@ export function useChat() {
 
         const remainder = buffer.trim();
         if (remainder) processLine(remainder);
-      } catch {
-        addSystemMessage("Tool rejection request failed.");
+      } catch (err: any) {
+        const isAbort =
+          err?.name === "AbortError" ||
+          (typeof err?.message === "string" &&
+            (err.message.includes("aborted") || err.message.includes("The user aborted a request")));
+        if (!isAbort) {
+          addSystemMessage("Tool rejection request failed.");
+        }
       } finally {
         setSending(false);
       }
@@ -597,6 +635,7 @@ export function useChat() {
     messages,
     sending,
     sendMessage,
+    stopGeneration,
     clearMessages,
     addSystemMessage,
     thinkingState,

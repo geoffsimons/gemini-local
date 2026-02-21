@@ -13,6 +13,7 @@ import {
   Check,
   XCircle,
   Wrench,
+  Square,
 } from "lucide-react";
 import type { ChatMessage, FolderEntry, PendingToolCall } from "@/lib/hub-state";
 
@@ -45,6 +46,7 @@ interface ChatPlaygroundProps {
   pendingToolCall: PendingToolCall[] | null;
   onApproveToolCall: (folderPath: string) => void | Promise<void>;
   onRejectToolCall: (folderPath: string) => void | Promise<void>;
+  onStopGeneration: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,7 @@ export default function ChatPlayground({
   pendingToolCall,
   onApproveToolCall,
   onRejectToolCall,
+  onStopGeneration,
 }: ChatPlaygroundProps) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -435,22 +438,27 @@ export default function ChatPlayground({
                 <span>{thinkingState}</span>
               </div>
             )}
-            {sending && (
-              <div className="flex items-center gap-2 py-2">
-                <Loader2
-                  size={14}
-                  className="animate-spin text-accent"
-                />
-                <span className="font-mono text-xs text-text-muted">
-                  Thinking...
-                </span>
-                {activeModel && (
-                  <span className="font-mono text-[10px] text-text-muted">
-                    · {activeModel}
-                  </span>
-                )}
-              </div>
-            )}
+            {sending &&
+              (() => {
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage?.thought?.trim()) return null;
+                return (
+                  <div className="flex items-center gap-2 py-2">
+                    <Loader2
+                      size={14}
+                      className="animate-spin text-accent"
+                    />
+                    <span className="font-mono text-xs text-text-muted">
+                      Thinking...
+                    </span>
+                    {activeModel && (
+                      <span className="font-mono text-[10px] text-text-muted">
+                        · {activeModel}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -544,25 +552,31 @@ export default function ChatPlayground({
             )}
           </div>
 
-          {/* Send */}
-          <button
-            onClick={handleSend}
-            disabled={
-              !activeFolder ||
-              sending ||
-              !!thinkingState ||
-              !!(pendingToolCall && pendingToolCall.length > 0) ||
-              (!input.trim() && images.length === 0)
-            }
-            className="mb-0.5 rounded bg-accent p-2 text-white transition-colors hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Send message"
-          >
-            {sending ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
+          {/* Stop / Send */}
+          {sending || thinkingState ? (
+            <button
+              type="button"
+              onClick={onStopGeneration}
+              className="mb-0.5 flex items-center gap-1.5 rounded border border-red-500/50 bg-red-500/10 px-2.5 py-2 font-mono text-[11px] text-red-600 transition-colors hover:bg-red-500/20 dark:text-red-400"
+              title="Stop generating"
+            >
+              <Square size={14} className="fill-current" />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={
+                !activeFolder ||
+                !!(pendingToolCall && pendingToolCall.length > 0) ||
+                (!input.trim() && images.length === 0)
+              }
+              className="mb-0.5 rounded bg-accent p-2 text-white transition-colors hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Send message"
+            >
               <Send size={16} />
-            )}
-          </button>
+            </button>
+          )}
         </div>
       </div>
     </main>
