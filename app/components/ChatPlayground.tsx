@@ -14,6 +14,7 @@ import {
   XCircle,
   Wrench,
   Square,
+  RotateCcw,
 } from "lucide-react";
 import type { ChatMessage, FolderEntry, PendingToolCall } from "@/lib/hub-state";
 
@@ -47,6 +48,7 @@ interface ChatPlaygroundProps {
   onApproveToolCall: (folderPath: string) => void | Promise<void>;
   onRejectToolCall: (folderPath: string) => void | Promise<void>;
   onStopGeneration: () => void;
+  onRetryGeneration?: (folderPath: string) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +81,7 @@ export default function ChatPlayground({
   onApproveToolCall,
   onRejectToolCall,
   onStopGeneration,
+  onRetryGeneration,
 }: ChatPlaygroundProps) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -389,9 +392,23 @@ export default function ChatPlayground({
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
+            {messages.map((msg, idx) => {
+              const isLastAssistant =
+                !sending &&
+                msg.role === "assistant" &&
+                messages.findLastIndex((m) => m.role === "assistant") === idx;
+              const onRetry =
+                isLastAssistant && onRetryGeneration && activeFolder
+                  ? () => onRetryGeneration(activeFolder)
+                  : undefined;
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  onRetry={onRetry}
+                />
+              );
+            })}
             {pendingToolCall && pendingToolCall.length > 0 && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
                 <div className="mb-2 flex items-center gap-2 font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">
@@ -587,7 +604,13 @@ export default function ChatPlayground({
 // Sub-component: Message bubble
 // ---------------------------------------------------------------------------
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onRetry,
+}: {
+  message: ChatMessage;
+  onRetry?: () => void;
+}) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -610,47 +633,64 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       )}
 
       <div
-        className={`max-w-[80%] rounded-lg px-3.5 py-2.5 ${
-          isUser
-            ? "bg-accent/15 text-text-primary"
-            : "bg-surface-2 text-text-primary"
+        className={`max-w-[80%] ${!isUser ? "min-w-0" : ""} ${
+          isUser ? "flex flex-col items-end" : "flex flex-col"
         }`}
       >
-        {/* Thought process (collapsible) */}
-        {!isUser && message.thought?.trim() && (
-          <details className="mb-3">
-            <summary className="cursor-pointer list-none font-mono text-xs text-text-muted before:inline-block before:mr-1 before:content-[''] [&::-webkit-details-marker]:hidden">
-              Thinking Process...
-            </summary>
-            <div className="mt-1.5 rounded bg-surface-3 px-3 py-2 font-mono text-[11px] text-text-secondary whitespace-pre-wrap">
-              {message.thought.trim()}
+        <div
+          className={`rounded-lg px-3.5 py-2.5 ${
+            isUser
+              ? "bg-accent/15 text-text-primary"
+              : "bg-surface-2 text-text-primary"
+          }`}
+        >
+          {/* Thought process (collapsible) — only when message.thought exists */}
+          {!isUser && message.thought != null && message.thought.trim() !== "" && (
+            <details className="mb-3">
+              <summary className="cursor-pointer list-none font-mono text-xs text-text-muted before:inline-block before:mr-1 before:content-[''] [&::-webkit-details-marker]:hidden">
+                Thinking Process...
+              </summary>
+              <pre className="mt-1.5 whitespace-pre-wrap rounded bg-surface-3 px-3 py-2 font-mono text-[10px] text-text-muted">
+                {message.thought.trim()}
+              </pre>
+            </details>
+          )}
+
+          {/* Main content — strictly outside and below the details */}
+          {message.images && message.images.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {message.images.map((src, i) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt={`attached ${i + 1}`}
+                  className="h-16 w-16 rounded border border-border object-cover"
+                />
+              ))}
             </div>
-          </details>
-        )}
+          )}
 
-        {/* Image previews */}
-        {message.images && message.images.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {message.images.map((src, i) => (
-              <img
-                key={i}
-                src={src}
-                alt={`attached ${i + 1}`}
-                className="h-16 w-16 rounded border border-border object-cover"
-              />
-            ))}
+          <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+            {message.text}
           </div>
+
+          <div className="mt-1.5 text-right font-mono text-[9px] text-text-muted">
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </div>
+        </div>
+
+        {/* Retry button — below last assistant message when not sending */}
+        {!isUser && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1.5 flex items-center gap-1 self-start rounded px-2 py-1 font-mono text-[11px] text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
+            title="Retry generation"
+          >
+            <RotateCcw size={12} className="shrink-0" />
+            Retry
+          </button>
         )}
-
-        {/* Text content */}
-        <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-          {message.text}
-        </div>
-
-        {/* Timestamp */}
-        <div className="mt-1.5 text-right font-mono text-[9px] text-text-muted">
-          {new Date(message.timestamp).toLocaleTimeString()}
-        </div>
       </div>
 
       {isUser && (

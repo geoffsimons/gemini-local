@@ -378,6 +378,28 @@ export function useChat() {
     setThinkingState(null);
   }, []);
 
+  const retryGeneration = useCallback(
+    async (folderPath: string) => {
+      const lastUserIndex = messages.findLastIndex((m) => m.role === "user");
+      if (lastUserIndex === -1) return;
+      const userMsg = messages[lastUserIndex];
+      setMessages((prev) => prev.slice(0, lastUserIndex));
+      const imagePayloads = userMsg.images
+        ?.map((uri) => {
+          const match = uri.match(/^data:([^;]+);base64,(.+)$/);
+          if (!match) return null;
+          return { mimeType: match[1], data: match[2] };
+        })
+        .filter((p): p is { mimeType: string; data: string } => p !== null && p.data.length > 0);
+      await sendMessage(
+        folderPath,
+        userMsg.text,
+        imagePayloads?.length ? imagePayloads : undefined,
+      );
+    },
+    [messages, sendMessage],
+  );
+
   const clearPendingToolCall = useCallback(() => {
     setPendingToolCall(null);
   }, []);
@@ -636,6 +658,7 @@ export function useChat() {
     sending,
     sendMessage,
     stopGeneration,
+    retryGeneration,
     clearMessages,
     addSystemMessage,
     thinkingState,

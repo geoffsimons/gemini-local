@@ -24,6 +24,7 @@ export default function HubConsole() {
     sending,
     sendMessage,
     stopGeneration,
+    retryGeneration,
     clearMessages,
     addSystemMessage,
     thinkingState,
@@ -115,6 +116,7 @@ export default function HubConsole() {
             sending={sending}
             onSendMessage={sendMessage}
             onStopGeneration={stopGeneration}
+            onRetryGeneration={retryGeneration}
             onClearMessages={clearMessages}
             onAddSystemMessage={addSystemMessage}
             thinkingState={thinkingState}
