@@ -1,33 +1,40 @@
-# Gemini Local Hub: Stateful Orchestration Layer
+# Gemini Local Hub
 
-The Gemini Local Hub is a high-performance orchestration layer designed to transform stateless LLM interactions into persistent, project-aware developer sessions. By maintaining a pool of "Warm Sessions" in memory, the Hub eliminates the significant cold-start latency associated with standard CLI invocations, enabling near-instantaneous AI-driven workflows.
+The Gemini Local Hub is a robust, local-first HTTP bridge and orchestration layer for the Google Gemini CLI. It transforms the stateless nature of LLM interactions into persistent, project-aware developer sessions, providing both a high-performance API and a modern chat interface.
 
-## 1. Architectural Intent: The Warm Session Advantage
+## Core Objective
 
-Standard CLI-based AI tools suffer from an "Invocation Penalty"—every call requires a fresh OAuth handshake, model discovery, and context loading. The Hub centralizes these costs into a single, long-lived process.
+The Hub serves two primary purposes:
+1.  **API Layer:** Wraps `@google/gemini-cli-core` to provide a persistent, stateful HTTP interface that eliminates the "Invocation Penalty" (OAuth handshakes and model discovery) of standard CLI calls.
+2.  **UI Layer:** A modern, Next.js-based chat interface designed for complex multi-modal workflows and real-time agentic interactions.
 
-- **Session Persistence**: Maintains `GeminiClient` instances as global singletons, preserving conversation history and local memory across separate HTTP requests.
-- **Latency Elimination**: Reduces sub-10 second cold starts to sub-second "warm" responses by keeping the model connection alive and authenticated.
-- **Project-Aware Context**: Automatically injects project-specific rules (`GEMINI.md`) into every session, ensuring the model operates with full architectural awareness from the first prompt.
+## Architectural Pillars
 
-## 2. Core Pillars
+### 1. Stateful "Warm" Sessions (ADR-001/002)
+By utilizing a **Global Singleton** pattern, the Hub maintains Gemini client instances in memory across requests. This preserves conversational history and local memory, reducing cold-start latency from seconds to milliseconds. Sessions are deterministically keyed to trusted project directories.
 
-### Stateful Registry Pattern
-The Hub's heart is a `ClientRegistry` that maps filesystem paths to deterministic session IDs. This ensures that any tool—be it a shell script, a CI pipeline, or the built-in UI—interacts with the same coherent conversation state for a given project.
+### 2. Agentic Loop & Tool Execution (ADR-007)
+The Hub implements a sophisticated asynchronous streaming pipeline for multi-turn tool use.
+- **YOLO Mode:** Automated server-side execution via the native SDK `ToolRegistry`.
+- **Manual Approval:** Human-in-the-loop validation for sensitive tool calls.
+- **State Machine:** Handles complex sequences where the model requires multiple tool interactions to fulfill a single user request.
 
-### Governance: Verify Before Trust
-Security is enforced through a strict "Verify Before Trust" model. No directory can be registered or accessed unless the Hub has physically validated its existence and provenance on the local disk. This prevents registry pollution and ensures that sessions are only spawned for valid, authorized project roots.
+### 3. Real-Time Thought Streaming
+Full transparency into the model's reasoning process. The UI renders real-time "thought blocks"—collapsible reasoning segments that allow developers to monitor the model's logic before it commits to an answer or tool execution.
 
-### Multimodal Normalization
-The Hub stabilizes model reasoning for complex visual tasks by performing server-side image normalization. Using the `sharp` library, multiple input images are stitched into a single high-fidelity composite, accompanied by structural system hints that guide the model's spatial interpretation.
+### 4. Multimodal Normalization (ADR-003)
+The Hub circumvents API limitations by performing server-side image processing. Multiple images are stitched into high-fidelity composites using `sharp`, ensuring spatial context is preserved without sacrificing text readability or introducing artifacts.
 
-## 3. The V2 Roadmap: Multi-Agent Collaboration
+### 5. Trusted Workspace Governance (ADR-004)
+Security is enforced through a persistent registry. The Hub only interacts with "Trusted Folders" that have been physically validated on the local disk, preventing unauthorized filesystem access.
 
-The future of the Hub lies in expanding from a single-session proxy to a multi-agent orchestration platform:
+## Tech Stack
 
-- **Named Workspaces**: Support for multiple independent conversation threads within a single project root.
-- **Agent Roles**: Specialized "Architect" vs. "Coder" agents that can collaborate or peer-review within the same project context.
-- **Autonomous Diagnostics**: Real-time integration with system logs and build errors for proactive, agent-driven debugging.
+- **Framework:** Next.js (App Router)
+- **Styling:** Tailwind CSS (v4) with `clsx` and `tailwind-merge`
+- **Core Engine:** `@google/gemini-cli-core`
+- **Image Processing:** `sharp`
+- **Icons:** `lucide-react`
 
 ---
-MIT License | Built for high-speed local AI development.
+MIT License | Built for high-speed, local-first AI development.
