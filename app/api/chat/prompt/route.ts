@@ -271,10 +271,10 @@ export async function POST(req: NextRequest) {
 
               const responseParts: any[] = [];
               for (const t of collectedTools) {
-                const output = executeTool(
+                const output = await executeTool(
+                  session,
                   t.tool_name,
                   t.parameters,
-                  session.folderPath,
                   true,
                 );
                 const parts = convertToFunctionResponse(

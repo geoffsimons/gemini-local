@@ -79,7 +79,14 @@ export async function POST(req: NextRequest) {
       const args = (tc.args && typeof tc.args === "object")
         ? (tc.args as Record<string, unknown>)
         : {};
-      const output = executeTool(tc.name, args, resolvedPath, Boolean(approved));
+      let output: string | unknown;
+      try {
+        output = await executeTool(session, tc.name, args, Boolean(approved));
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error("Tool execution failed in /api/chat/tool", { tool: tc.name, error: errMsg });
+        output = `Error: ${errMsg}`;
+      }
       const parts = convertToFunctionResponse(
         tc.name,
         tc.id,
