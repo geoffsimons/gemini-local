@@ -1,28 +1,33 @@
 #!/usr/bin/env node
 /**
- * Validates the Human-in-the-Loop tool execution flow:
- * - Phase A: POST /api/chat/prompt with stream: true; assert stream yields TOOL_USE, capture it.
- * - Fulfillment loop: POST /api/chat/tool with the captured toolCall (stream: true). Consume stream;
- *   accumulate MESSAGE content; if stream yields another TOOL_USE, capture and fulfill again (max rounds).
- * - Assert accumulated MESSAGE content eventually includes BLUE_MONKEY.
+ * Validates multi-step tool execution: dynamic test file, human-like prompt,
+ * and sequential approval loop (prompt stream -> TOOL_USE -> POST /api/chat/tool -> resume stream).
+ * Success: MESSAGE content includes the generated secret code.
  */
+
+import * as fs from "fs";
+import * as path from "path";
 
 const folderPath = process.argv[2];
 if (!folderPath) {
-  console.error('Usage: npx tsx scripts/test-tools.ts <folderPath>');
+  console.error("Usage: npx tsx scripts/test-tools.ts <folderPath>");
   process.exit(1);
 }
 
-const PROMPT_URL = 'http://localhost:3000/api/chat/prompt';
-const TOOL_URL = 'http://localhost:3000/api/chat/tool';
-const TIMEOUT_MS = 30_000;
-const MAX_TOOL_ROUNDS = 5;
+const PROMPT_URL = "http://localhost:3000/api/chat/prompt";
+const TOOL_URL = "http://localhost:3000/api/chat/tool";
+const TIMEOUT_MS = 60_000;
+const MAX_TOOL_ROUNDS = 10;
 
-interface ToolUseEvent {
-  type: string;
-  tool_id?: string;
-  tool_name?: string;
-  parameters?: Record<string, unknown>;
+const randomSuffix = Math.random().toString(36).substring(7);
+const testFilename = `tmp_${randomSuffix}.md`;
+const secretCode = `SECRET_CODE_${Date.now()}`;
+const testFilePath = path.join(folderPath, testFilename);
+
+interface ToolCallCollected {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
 }
 
 interface StreamEvent {
@@ -37,8 +42,8 @@ function drainNdjsonBuffer(
   buffer: string,
   decoder: (line: string) => void,
 ): string {
-  const lines = buffer.split('\n');
-  const remainder = lines.pop() ?? '';
+  const lines = buffer.split("\n");
+  const remainder = lines.pop() ?? "";
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -55,132 +60,94 @@ async function run(): Promise<void> {
   const ac = new AbortController();
   const timeoutId = setTimeout(() => ac.abort(), TIMEOUT_MS);
 
-  let pendingTool: {
-    id: string;
-    name: string;
-    args: Record<string, unknown>;
-  } | null = null;
-  let messageContent = '';
-  const decoder = new TextDecoder();
+  try {
+    fs.writeFileSync(testFilePath, secretCode, "utf8");
+  } catch (err) {
+    console.error("Failed to write test file:", (err as Error).message);
+    process.exit(1);
+  }
 
   try {
-    // --- Phase A: Interception (prompt stream yields first TOOL_USE) ---
-    const promptRes = await fetch(PROMPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        folderPath,
-        message: 'Read GEMINI.md and tell me the secret code.',
-        stream: true,
-        model: 'gemini-3-pro-preview',
-      }),
-      signal: ac.signal,
-    });
+    const decoder = new TextDecoder();
+    let accumulatedMessageContent = "";
+    let streamSource: "prompt" | "tool" = "prompt";
+    let pendingTools: ToolCallCollected[] = [];
+    let rounds = 0;
+    let success = false;
+    let failReason: string | null = null;
 
-    if (!promptRes.ok) {
-      console.error(`Phase A failed: HTTP ${promptRes.status}`);
-      process.exit(1);
-    }
-
-    const promptReader = promptRes.body?.getReader();
-    if (!promptReader) {
-      console.error('Phase A failed: no response body');
-      process.exit(1);
-    }
-
-    let buffer = '';
     while (true) {
-      const { done, value } = await promptReader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      buffer = drainNdjsonBuffer(buffer, (line) => {
-        try {
-          const event = JSON.parse(line) as ToolUseEvent;
-          if (event.type === 'TOOL_USE') {
-            pendingTool = {
-              id: event.tool_id ?? `call-${Date.now()}`,
-              name: event.tool_name ?? '',
-              args: event.parameters ?? {},
-            };
-          }
-        } catch {
-          // ignore non-JSON lines
+      let res: Response;
+      if (streamSource === "prompt") {
+        res = await fetch(PROMPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            folderPath,
+            message:
+              "Hey, I just dropped a temporary markdown file somewhere in this folder. It has a weird, random alphanumeric name. Could you search the directory, find that file, read it, and tell me the secret code hidden inside?",
+            stream: true,
+            model: "gemini-3-pro-preview",
+          }),
+          signal: ac.signal,
+        });
+        streamSource = "tool";
+      } else {
+        if (pendingTools.length === 0) {
+          failReason =
+            "Stream ended without TOOL_USE and message did not contain secret. " +
+            `Accumulated content (first 500 chars): ${accumulatedMessageContent.slice(0, 500)}`;
+          break;
         }
-      });
-    }
-    const phaseARemainder = buffer.trim();
-    if (phaseARemainder) {
-      try {
-        const event = JSON.parse(phaseARemainder) as ToolUseEvent;
-        if (event.type === 'TOOL_USE') {
-          pendingTool = {
-            id: event.tool_id ?? `call-${Date.now()}`,
-            name: event.tool_name ?? '',
-            args: event.parameters ?? {},
-          };
+        if (rounds >= MAX_TOOL_ROUNDS) {
+          failReason = `Exceeded ${MAX_TOOL_ROUNDS} tool rounds`;
+          break;
         }
-      } catch {
-        // ignore
-      }
-    }
-
-    if (!pendingTool?.name) {
-      console.error('Phase A failed: stream did not yield TOOL_USE with tool_name');
-      process.exit(1);
-    }
-
-    // --- Fulfillment loop: fulfill each TOOL_USE; if stream yields another TOOL_USE, fulfill again ---
-    for (let round = 0; round < MAX_TOOL_ROUNDS && pendingTool; round++) {
-      let args = pendingTool.args;
-      if (pendingTool.name === 'read_file') {
-        const hasPath = args.path != null || args.file != null;
-        if (!hasPath) {
-          args = { ...args, path: 'GEMINI.md' };
-        }
+        rounds += 1;
+        res = await fetch(TOOL_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            folderPath,
+            approved: true,
+            toolCalls: pendingTools,
+            stream: true,
+          }),
+          signal: ac.signal,
+        });
+        pendingTools = [];
       }
 
-      const toolRes = await fetch(TOOL_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          folderPath,
-          approved: true,
-          toolCall: { id: pendingTool.id, name: pendingTool.name, args },
-          stream: true,
-        }),
-        signal: ac.signal,
-      });
-
-      if (!toolRes.ok) {
-        console.error(`Fulfillment failed: HTTP ${toolRes.status}`);
-        process.exit(1);
+      if (!res.ok) {
+        failReason = `Request failed: HTTP ${res.status}`;
+        break;
       }
 
-      const toolReader = toolRes.body?.getReader();
-      if (!toolReader) {
-        console.error('Fulfillment failed: no response body');
-        process.exit(1);
+      const reader = res.body?.getReader();
+      if (!reader) {
+        failReason = "No response body";
+        break;
       }
 
-      pendingTool = null;
-      buffer = '';
+      let buffer = "";
+      const collectedTools: ToolCallCollected[] = [];
 
       while (true) {
-        const { done, value } = await toolReader.read();
+        const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         buffer = drainNdjsonBuffer(buffer, (line) => {
           try {
             const event = JSON.parse(line) as StreamEvent;
-            if (event.type === 'MESSAGE' && event.content != null) {
-              messageContent += event.content;
-            }
-            if (event.type === 'TOOL_USE') {
-              pendingTool = {
+            if (event.type === "TOOL_USE") {
+              collectedTools.push({
                 id: event.tool_id ?? `call-${Date.now()}`,
-                name: event.tool_name ?? '',
+                name: event.tool_name ?? "",
                 args: event.parameters ?? {},
-              };
+              });
+            }
+            if (event.type === "MESSAGE" && event.content != null) {
+              accumulatedMessageContent += event.content;
             }
           } catch {
             // ignore non-JSON lines
@@ -188,43 +155,61 @@ async function run(): Promise<void> {
         });
       }
 
-      const rem = buffer.trim();
-      if (rem) {
+      const remainder = buffer.trim();
+      if (remainder) {
         try {
-          const event = JSON.parse(rem) as StreamEvent;
-          if (event.type === 'MESSAGE' && event.content != null) {
-            messageContent += event.content;
-          }
-          if (event.type === 'TOOL_USE') {
-            pendingTool = {
+          const event = JSON.parse(remainder) as StreamEvent;
+          if (event.type === "TOOL_USE") {
+            collectedTools.push({
               id: event.tool_id ?? `call-${Date.now()}`,
-              name: event.tool_name ?? '',
+              name: event.tool_name ?? "",
               args: event.parameters ?? {},
-            };
+            });
+          }
+          if (event.type === "MESSAGE" && event.content != null) {
+            accumulatedMessageContent += event.content;
           }
         } catch {
           // ignore
         }
       }
+
+      if (accumulatedMessageContent.includes(secretCode)) {
+        success = true;
+        break;
+      }
+
+      pendingTools = collectedTools;
     }
 
-    if (!messageContent.includes('BLUE_MONKEY')) {
-      console.error('Tool execution test failed: MESSAGE content did not include BLUE_MONKEY');
-      console.error('Accumulated content (first 500 chars):', messageContent.slice(0, 500));
+    if (failReason != null) {
+      console.error("Tool execution test failed:", failReason);
       process.exit(1);
+    }
+    if (success) {
+      console.log("Tool execution test passed: secret code found in message.");
+      process.exit(0);
     }
   } finally {
     clearTimeout(timeoutId);
+    try {
+      fs.unlinkSync(testFilePath);
+    } catch {
+      // ignore cleanup errors
+    }
   }
-
-  process.exit(0);
 }
 
 run().catch((err) => {
-  if (err?.name === 'AbortError') {
-    console.error('Tool execution test failed: 30s timeout');
+  try {
+    fs.unlinkSync(testFilePath);
+  } catch {
+    // ignore
+  }
+  if (err?.name === "AbortError") {
+    console.error("Tool execution test failed: 60s timeout");
   } else {
-    console.error('Tool execution test failed:', err?.message ?? err);
+    console.error("Tool execution test failed:", err?.message ?? err);
   }
   process.exit(1);
 });
