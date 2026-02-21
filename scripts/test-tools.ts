@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * Validates the Human-in-the-Loop tool execution flow:
- * Phase A: POST /api/chat/prompt with stream: true, assert TOOL_USE then stream closes.
- * Phase B: POST /api/chat/tool with the captured toolCall and stream: true, assert MESSAGE contains BLUE_MONKEY.
+ * - Phase A: POST /api/chat/prompt with stream: true; assert stream yields TOOL_USE, capture it.
+ * - Fulfillment loop: POST /api/chat/tool with the captured toolCall (stream: true). Consume stream;
+ *   accumulate MESSAGE content; if stream yields another TOOL_USE, capture and fulfill again (max rounds).
+ * - Assert accumulated MESSAGE content eventually includes BLUE_MONKEY.
  */
 
 const folderPath = process.argv[2];
@@ -14,6 +16,7 @@ if (!folderPath) {
 const PROMPT_URL = 'http://localhost:3000/api/chat/prompt';
 const TOOL_URL = 'http://localhost:3000/api/chat/tool';
 const TIMEOUT_MS = 30_000;
+const MAX_TOOL_ROUNDS = 5;
 
 interface ToolUseEvent {
   type: string;
@@ -25,18 +28,43 @@ interface ToolUseEvent {
 interface StreamEvent {
   type?: string;
   content?: string;
+  tool_id?: string;
+  tool_name?: string;
+  parameters?: Record<string, unknown>;
+}
+
+function drainNdjsonBuffer(
+  buffer: string,
+  decoder: (line: string) => void,
+): string {
+  const lines = buffer.split('\n');
+  const remainder = lines.pop() ?? '';
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      decoder(trimmed);
+    } catch {
+      // ignore
+    }
+  }
+  return remainder;
 }
 
 async function run(): Promise<void> {
   const ac = new AbortController();
   const timeoutId = setTimeout(() => ac.abort(), TIMEOUT_MS);
 
-  let tool_id: string | undefined;
-  let tool_name: string | undefined;
-  let parameters: Record<string, unknown> = {};
+  let pendingTool: {
+    id: string;
+    name: string;
+    args: Record<string, unknown>;
+  } | null = null;
+  let messageContent = '';
+  const decoder = new TextDecoder();
 
   try {
-    // --- Phase A: The Interception ---
+    // --- Phase A: Interception (prompt stream yields first TOOL_USE) ---
     const promptRes = await fetch(PROMPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -60,84 +88,119 @@ async function run(): Promise<void> {
       process.exit(1);
     }
 
-    const decoder = new TextDecoder();
     let buffer = '';
-    let sawToolUse = false;
-
     while (true) {
       const { done, value } = await promptReader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+      buffer = drainNdjsonBuffer(buffer, (line) => {
         try {
-          const event = JSON.parse(trimmed) as ToolUseEvent;
+          const event = JSON.parse(line) as ToolUseEvent;
           if (event.type === 'TOOL_USE') {
-            sawToolUse = true;
-            tool_id = event.tool_id;
-            tool_name = event.tool_name;
-            parameters = event.parameters ?? {};
+            pendingTool = {
+              id: event.tool_id ?? `call-${Date.now()}`,
+              name: event.tool_name ?? '',
+              args: event.parameters ?? {},
+            };
           }
         } catch {
-          // ignore non-JSON
+          // ignore non-JSON lines
         }
+      });
+    }
+    const phaseARemainder = buffer.trim();
+    if (phaseARemainder) {
+      try {
+        const event = JSON.parse(phaseARemainder) as ToolUseEvent;
+        if (event.type === 'TOOL_USE') {
+          pendingTool = {
+            id: event.tool_id ?? `call-${Date.now()}`,
+            name: event.tool_name ?? '',
+            args: event.parameters ?? {},
+          };
+        }
+      } catch {
+        // ignore
       }
     }
 
-    if (!sawToolUse || !tool_name) {
+    if (!pendingTool?.name) {
       console.error('Phase A failed: stream did not yield TOOL_USE with tool_name');
       process.exit(1);
     }
 
-    // --- Phase B: The Fulfillment ---
-    const toolRes = await fetch(TOOL_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        folderPath,
-        approved: true,
-        toolCall: {
-          id: tool_id ?? `call-${Date.now()}`,
-          name: tool_name,
-          args: parameters,
-        },
-        stream: true,
-      }),
-      signal: ac.signal,
-    });
+    // --- Fulfillment loop: fulfill each TOOL_USE; if stream yields another TOOL_USE, fulfill again ---
+    for (let round = 0; round < MAX_TOOL_ROUNDS && pendingTool; round++) {
+      let args = pendingTool.args;
+      if (pendingTool.name === 'read_file') {
+        const hasPath = args.path != null || args.file != null;
+        if (!hasPath) {
+          args = { ...args, path: 'GEMINI.md' };
+        }
+      }
 
-    if (!toolRes.ok) {
-      console.error(`Phase B failed: HTTP ${toolRes.status}`);
-      process.exit(1);
-    }
+      const toolRes = await fetch(TOOL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folderPath,
+          approved: true,
+          toolCall: { id: pendingTool.id, name: pendingTool.name, args },
+          stream: true,
+        }),
+        signal: ac.signal,
+      });
 
-    const toolReader = toolRes.body?.getReader();
-    if (!toolReader) {
-      console.error('Phase B failed: no response body');
-      process.exit(1);
-    }
+      if (!toolRes.ok) {
+        console.error(`Fulfillment failed: HTTP ${toolRes.status}`);
+        process.exit(1);
+      }
 
-    buffer = '';
-    let messageContent = '';
+      const toolReader = toolRes.body?.getReader();
+      if (!toolReader) {
+        console.error('Fulfillment failed: no response body');
+        process.exit(1);
+      }
 
-    while (true) {
-      const { done, value } = await toolReader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      pendingTool = null;
+      buffer = '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+      while (true) {
+        const { done, value } = await toolReader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = drainNdjsonBuffer(buffer, (line) => {
+          try {
+            const event = JSON.parse(line) as StreamEvent;
+            if (event.type === 'MESSAGE' && event.content != null) {
+              messageContent += event.content;
+            }
+            if (event.type === 'TOOL_USE') {
+              pendingTool = {
+                id: event.tool_id ?? `call-${Date.now()}`,
+                name: event.tool_name ?? '',
+                args: event.parameters ?? {},
+              };
+            }
+          } catch {
+            // ignore non-JSON lines
+          }
+        });
+      }
+
+      const rem = buffer.trim();
+      if (rem) {
         try {
-          const event = JSON.parse(trimmed) as StreamEvent;
+          const event = JSON.parse(rem) as StreamEvent;
           if (event.type === 'MESSAGE' && event.content != null) {
             messageContent += event.content;
+          }
+          if (event.type === 'TOOL_USE') {
+            pendingTool = {
+              id: event.tool_id ?? `call-${Date.now()}`,
+              name: event.tool_name ?? '',
+              args: event.parameters ?? {},
+            };
           }
         } catch {
           // ignore
@@ -146,7 +209,7 @@ async function run(): Promise<void> {
     }
 
     if (!messageContent.includes('BLUE_MONKEY')) {
-      console.error('Phase B failed: MESSAGE content did not include BLUE_MONKEY');
+      console.error('Tool execution test failed: MESSAGE content did not include BLUE_MONKEY');
       console.error('Accumulated content (first 500 chars):', messageContent.slice(0, 500));
       process.exit(1);
     }
@@ -165,3 +228,5 @@ run().catch((err) => {
   }
   process.exit(1);
 });
+
+export {};
