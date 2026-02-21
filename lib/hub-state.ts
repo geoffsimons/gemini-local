@@ -17,7 +17,7 @@ export interface RegistryListResponse {
   folders: Array<{ path: string; isReady: boolean }>;
 }
 
-/** Tool call awaiting user approval (matches stream TOOL_USE event). */
+/** Single tool call (matches stream TOOL_USE event). */
 export interface PendingToolCall {
   type: "TOOL_USE";
   tool_name: string;
@@ -149,7 +149,7 @@ export function useChat() {
   const [sending, setSending] = useState(false);
   const [thinkingState, setThinkingState] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
-  const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
+  const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall[] | null>(null);
   const [yoloMode, setYoloModeState] = useState(false);
   const idCounter = useRef(0);
   const lastStreamingAssistantIdRef = useRef<string | null>(null);
@@ -206,7 +206,6 @@ export function useChat() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let sawToolUse = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -236,17 +235,17 @@ export function useChat() {
                   if (event.model) setActiveModel(event.model);
                   break;
                 case "TOOL_USE": {
-                  setPendingToolCall({
-                    type: "TOOL_USE",
+                  const tool = {
+                    type: "TOOL_USE" as const,
                     tool_name: event.tool_name ?? "tool",
                     parameters: event.parameters ?? {},
                     ...(event.tool_id && { tool_id: event.tool_id }),
-                  });
+                  };
+                  setPendingToolCall((prev) => [...(prev ?? []), tool]);
                   const params = event.parameters ?? {};
                   const pathVal = typeof params.path === "string" ? params.path : undefined;
                   const label = pathVal ? `Reading ${pathVal}` : `Using ${event.tool_name ?? "tool"}`;
                   setThinkingState(label);
-                  sawToolUse = true;
                   break;
                 }
                 case "MESSAGE":
@@ -285,7 +284,6 @@ export function useChat() {
               console.error("Failed to parse NDJSON event", err);
             }
           }
-          if (sawToolUse) break;
         }
       } catch (err: any) {
         setThinkingState(null);
@@ -352,8 +350,8 @@ export function useChat() {
 
   const onApproveToolCall = useCallback(
     async (folderPath: string) => {
-      const tool = pendingToolCall;
-      if (!tool || !folderPath) return;
+      const tools = pendingToolCall;
+      if (!tools || tools.length === 0 || !folderPath) return;
 
       const lastAssistantId = lastStreamingAssistantIdRef.current;
       setPendingToolCall(null);
@@ -366,11 +364,11 @@ export function useChat() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             folderPath,
-            toolCall: {
-              id: tool.tool_id ?? `call-${Date.now()}`,
-              name: tool.tool_name,
-              args: tool.parameters ?? {},
-            },
+            toolCalls: tools.map((t, i) => ({
+              id: t.tool_id ?? `call-${Date.now()}-${i}`,
+              name: t.tool_name,
+              args: t.parameters ?? {},
+            })),
             approved: true,
             stream: true,
           }),
@@ -415,12 +413,13 @@ export function useChat() {
                 );
               }
             } else if (event.type === "TOOL_USE") {
-              setPendingToolCall({
-                type: "TOOL_USE",
+              const tool = {
+                type: "TOOL_USE" as const,
                 tool_name: event.tool_name ?? "tool",
                 parameters: event.parameters ?? {},
                 ...(event.tool_id && { tool_id: event.tool_id }),
-              });
+              };
+              setPendingToolCall((prev) => [...(prev ?? []), tool]);
               sawToolUse = true;
             } else if (event.type === "ERROR" && event.message && lastAssistantId) {
               setMessages((prev) =>
@@ -468,8 +467,8 @@ export function useChat() {
 
   const onRejectToolCall = useCallback(
     async (folderPath: string) => {
-      const tool = pendingToolCall;
-      if (!tool || !folderPath) return;
+      const tools = pendingToolCall;
+      if (!tools || tools.length === 0 || !folderPath) return;
 
       const lastAssistantId = lastStreamingAssistantIdRef.current;
       setPendingToolCall(null);
@@ -482,11 +481,11 @@ export function useChat() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             folderPath,
-            toolCall: {
-              id: tool.tool_id ?? `call-${Date.now()}`,
-              name: tool.tool_name,
-              args: tool.parameters ?? {},
-            },
+            toolCalls: tools.map((t, i) => ({
+              id: t.tool_id ?? `call-${Date.now()}-${i}`,
+              name: t.tool_name,
+              args: t.parameters ?? {},
+            })),
             approved: false,
             stream: true,
           }),
@@ -535,12 +534,13 @@ export function useChat() {
                 );
               }
             } else if (event.type === "TOOL_USE") {
-              setPendingToolCall({
-                type: "TOOL_USE",
+              const tool = {
+                type: "TOOL_USE" as const,
                 tool_name: event.tool_name ?? "tool",
                 parameters: event.parameters ?? {},
                 ...(event.tool_id && { tool_id: event.tool_id }),
-              });
+              };
+              setPendingToolCall((prev) => [...(prev ?? []), tool]);
               sawToolUse = true;
             } else if (event.type === "RESULT" || event.type === "ERROR") {
               setThinkingState(null);

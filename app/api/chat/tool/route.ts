@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { registry } from "@/lib/registry";
 import { isFolderTrusted } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
+import { executeTool } from "@/lib/tools";
 import { JsonStreamEventType, convertToFunctionResponse } from "@google/gemini-cli-core";
 import path from "path";
 
@@ -19,44 +18,6 @@ interface ToolCallBody {
   args: Record<string, unknown>;
 }
 
-/** Execute a single tool server-side; returns string for FunctionResponse output. */
-function executeTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  folderPath: string,
-  approved: boolean,
-): string {
-  if (!approved) {
-    return "User rejected the tool call.";
-  }
-
-  const root = resolve(folderPath);
-
-  switch (toolName) {
-    case "read_file": {
-      const p = args.path ?? args.file;
-      const relPath = typeof p === "string" ? p : String(p ?? "");
-      if (!relPath) return "Error: missing path argument.";
-      const fullPath = path.isAbsolute(relPath) ? relPath : join(root, relPath);
-      const resolved = resolve(fullPath);
-      if (!resolved.startsWith(root)) {
-        return "Error: path is outside project directory.";
-      }
-      if (!existsSync(resolved)) {
-        return `Error: file not found: ${relPath}`;
-      }
-      try {
-        return readFileSync(resolved, "utf-8");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return `Error reading file: ${msg}`;
-      }
-    }
-    default:
-      return `Tool "${toolName}" is not implemented for approval flow.`;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // POST /api/chat/tool
 // ---------------------------------------------------------------------------
@@ -68,12 +29,14 @@ export async function POST(req: NextRequest) {
       folderPath,
       sessionId,
       toolCall,
+      toolCalls: toolCallsBody,
       approved,
       stream: streamRequest,
     } = body as {
       folderPath: string;
       sessionId?: string;
-      toolCall: ToolCallBody;
+      toolCall?: ToolCallBody;
+      toolCalls?: ToolCallBody[];
       approved: boolean;
       stream?: boolean;
     };
@@ -81,17 +44,20 @@ export async function POST(req: NextRequest) {
     if (!folderPath) {
       return NextResponse.json({ error: "folderPath is required" }, { status: 400 });
     }
-    if (!toolCall || typeof toolCall !== "object" || !toolCall.id || !toolCall.name) {
+    const toolCalls: ToolCallBody[] = Array.isArray(toolCallsBody) && toolCallsBody.length > 0
+      ? toolCallsBody
+      : toolCall && typeof toolCall === "object" && toolCall.id && toolCall.name
+        ? [toolCall]
+        : [];
+    if (toolCalls.length === 0) {
       return NextResponse.json(
-        { error: "toolCall with id and name is required" },
+        { error: "toolCall (or toolCalls array) with id and name is required" },
         { status: 400 },
       );
     }
 
-    const callId = toolCall.id;
     logger.info("Tool fulfillment received", {
-      callId,
-      toolName: toolCall.name,
+      count: toolCalls.length,
       approved: Boolean(approved),
     });
 
@@ -108,37 +74,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Folder not trusted" }, { status: 403 });
     }
 
-    const args = (toolCall.args && typeof toolCall.args === "object")
-      ? (toolCall.args as Record<string, unknown>)
-      : {};
-    const output = executeTool(toolCall.name, args, resolvedPath, Boolean(approved));
-
-    const responseParts = convertToFunctionResponse(
-      toolCall.name,
-      callId,
-      output,
-      session.client.currentModel,
-    );
-    logger.debug("FunctionResponse built for Gemini API", { callId, toolName: toolCall.name });
+    const responseParts: any[] = [];
+    for (const tc of toolCalls) {
+      const args = (tc.args && typeof tc.args === "object")
+        ? (tc.args as Record<string, unknown>)
+        : {};
+      const output = executeTool(tc.name, args, resolvedPath, Boolean(approved));
+      const parts = convertToFunctionResponse(
+        tc.name,
+        tc.id,
+        output,
+        session.client.currentModel,
+      );
+      responseParts.push(...parts);
+    }
 
     const lastTurn = session.history[session.history.length - 1];
-    const lastIsModelWithMatchingCall =
+    const lastIsModelWithAllCalls =
       lastTurn?.role === "model" &&
-      (lastTurn as any).parts?.some?.(
-        (p: any) => p?.functionCall?.id === callId,
+      toolCalls.every((tc) =>
+        (lastTurn as any).parts?.some?.((p: any) => p?.functionCall?.id === tc.id),
       );
-    if (!lastIsModelWithMatchingCall) {
+    if (!lastIsModelWithAllCalls) {
       session.history.push({
         role: "model",
-        parts: [{
+        parts: toolCalls.map((tc) => ({
           functionCall: {
-            id: callId,
-            name: toolCall.name,
-            args,
+            id: tc.id,
+            name: tc.name,
+            args: (tc.args && typeof tc.args === "object") ? tc.args : {},
           },
-        }],
+        })),
       } as any);
-      logger.info("Injected missing model turn before functionResponse", { callId });
+      logger.info("Injected missing model turn before functionResponse", { count: toolCalls.length });
     }
 
     session.client.setHistory(session.history as any);
@@ -164,7 +132,7 @@ export async function POST(req: NextRequest) {
           };
 
           try {
-            logger.debug("Calling client.prompt with functionResponse", { callId });
+            logger.debug("Calling client.prompt with functionResponse", { count: toolCalls.length });
             const stream = session.client.prompt(responseParts, {
               signal: abortController.signal,
               promptId,
@@ -222,7 +190,6 @@ export async function POST(req: NextRequest) {
                     controller.close();
                     return;
                   }
-                  logger.info("[Agent] Auto-executing tool: %s", toolEvent.tool_name);
                   break;
                 }
                 case JsonStreamEventType.ERROR:

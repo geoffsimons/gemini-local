@@ -42,7 +42,7 @@ interface ChatPlaygroundProps {
   onAddSystemMessage: (text: string) => void;
   thinkingState: string | null;
   activeModel: string | null;
-  pendingToolCall: PendingToolCall | null;
+  pendingToolCall: PendingToolCall[] | null;
   onApproveToolCall: (folderPath: string) => void | Promise<void>;
   onRejectToolCall: (folderPath: string) => void | Promise<void>;
 }
@@ -246,7 +246,7 @@ export default function ChatPlayground({
   // ---------------------------------------------------------------------------
 
   const handleSend = useCallback(async () => {
-    if (sending || thinkingState || pendingToolCall || !input.trim()) return;
+    if (sending || thinkingState || (pendingToolCall && pendingToolCall.length > 0) || !input.trim()) return;
     if (!activeFolder) return;
 
     const imagePayloads = images.map((img) => ({
@@ -389,18 +389,24 @@ export default function ChatPlayground({
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
-            {pendingToolCall && (
+            {pendingToolCall && pendingToolCall.length > 0 && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
                 <div className="mb-2 flex items-center gap-2 font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">
                   <Wrench size={14} />
-                  Action Required
+                  Action Required ({pendingToolCall.length} tool{pendingToolCall.length !== 1 ? "s" : ""})
                 </div>
-                <p className="mb-2 font-mono text-[11px] text-text-secondary">
-                  Tool: <span className="font-semibold text-text-primary">{pendingToolCall.tool_name}</span>
-                </p>
-                <pre className="mb-3 max-h-24 overflow-y-auto rounded bg-surface-2 px-2 py-1.5 font-mono text-[10px] text-text-muted">
-                  {JSON.stringify(pendingToolCall.parameters, null, 2)}
-                </pre>
+                <ul className="mb-3 space-y-2">
+                  {pendingToolCall.map((tool, i) => (
+                    <li key={tool.tool_id ?? i} className="rounded bg-surface-2/80 px-2 py-1.5">
+                      <p className="font-mono text-[11px] text-text-secondary">
+                        Tool: <span className="font-semibold text-text-primary">{tool.tool_name}</span>
+                      </p>
+                      <pre className="mt-1 max-h-20 overflow-y-auto font-mono text-[10px] text-text-muted">
+                        {JSON.stringify(tool.parameters, null, 2)}
+                      </pre>
+                    </li>
+                  ))}
+                </ul>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -409,7 +415,7 @@ export default function ChatPlayground({
                     className="flex items-center gap-1.5 rounded bg-accent px-2.5 py-1.5 font-mono text-[11px] text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                   >
                     <Check size={12} />
-                    Approve
+                    Approve all
                   </button>
                   <button
                     type="button"
@@ -418,7 +424,7 @@ export default function ChatPlayground({
                     className="flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary transition-colors hover:bg-surface-3 disabled:opacity-50"
                   >
                     <XCircle size={12} />
-                    Reject
+                    Reject all
                   </button>
                 </div>
               </div>
@@ -502,7 +508,7 @@ export default function ChatPlayground({
                 ? "Send a message... (Shift+Enter for newline)"
                 : "Select a project first"
             }
-            disabled={!activeFolder || sending || !!thinkingState || !!pendingToolCall}
+            disabled={!activeFolder || sending || !!thinkingState || !!(pendingToolCall && pendingToolCall.length > 0)}
             rows={1}
             className="flex-1 resize-none rounded border border-border bg-surface-2 px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-accent disabled:opacity-50"
           />
@@ -545,7 +551,7 @@ export default function ChatPlayground({
               !activeFolder ||
               sending ||
               !!thinkingState ||
-              !!pendingToolCall ||
+              !!(pendingToolCall && pendingToolCall.length > 0) ||
               (!input.trim() && images.length === 0)
             }
             className="mb-0.5 rounded bg-accent p-2 text-white transition-colors hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"

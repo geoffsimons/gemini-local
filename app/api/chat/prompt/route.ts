@@ -3,7 +3,8 @@ import { registry } from "@/lib/registry";
 import { isFolderTrusted } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import { cleanBase64, stitchImages } from "@/lib/images";
-import { JsonStreamEventType } from "@google/gemini-cli-core";
+import { executeTool } from "@/lib/tools";
+import { JsonStreamEventType, convertToFunctionResponse } from "@google/gemini-cli-core";
 import path from "path";
 
 const logger = createLogger('Hub/API/Chat');
@@ -154,80 +155,144 @@ export async function POST(req: NextRequest) {
             controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
           };
 
+          const syncHistoryFromCore = () => {
+            session.history.length = 0;
+            session.history.push(...(session.client.getHistory() as typeof session.history));
+          };
+
+          type ToolUseEvent = { tool_name: string; parameters?: Record<string, unknown>; tool_id?: string };
+          let currentStream = session.client.prompt(parts, {
+            signal: abortController.signal,
+            promptId,
+            sessionId: session.config.getSessionId(),
+          });
+
           try {
-            const stream = session.client.prompt(parts, {
-              signal: abortController.signal,
-              promptId,
-              sessionId: session.config.getSessionId(),
-            });
+            outer: while (true) {
+              const collectedTools: Array<{ tool_name: string; parameters: Record<string, unknown>; tool_id: string }> = [];
+              let sawResult = false;
+              let resultStats: unknown = undefined;
 
-            for await (const event of stream) {
-              logger.debug('Stream event', { type: event.type });
+              for await (const event of currentStream) {
+                logger.debug('Stream event', { type: event.type });
 
-              switch (event.type) {
-                case JsonStreamEventType.INIT:
-                  logger.info('Stream initialized', { model: (event as any).model });
-                  sendEvent({ type: 'INIT', model: (event as any).model });
-                  break;
+                switch (event.type) {
+                  case JsonStreamEventType.INIT:
+                    logger.info('Stream initialized', { model: (event as any).model });
+                    sendEvent({ type: 'INIT', model: (event as any).model });
+                    break;
 
-                case JsonStreamEventType.MESSAGE:
-                  logger.debug('Message event', { event });
-                  if ((event as any).role === 'assistant') {
-                    logger.debug('Assistant message chunk', { delta: (event as any).delta });
-                  }
-                  if ((event as any).content) {
-                    bufferedResponseText += (event as any).content ?? '';
-                    sendEvent({ type: 'MESSAGE', content: (event as any).content, delta: (event as any).delta });
-                  }
-                  break;
+                  case JsonStreamEventType.MESSAGE:
+                    if ((event as any).content) {
+                      bufferedResponseText += (event as any).content ?? '';
+                      sendEvent({ type: 'MESSAGE', content: (event as any).content, delta: (event as any).delta });
+                    }
+                    break;
 
-                case JsonStreamEventType.TOOL_USE: {
-                  const toolEvent = event as { tool_name: string; parameters?: Record<string, unknown>; tool_id?: string };
-                  const callId = toolEvent.tool_id ?? `call-${Date.now()}`;
-                  if (!toolEvent.tool_id) {
-                    logger.warn("TOOL_USE event missing tool_id; fallback may break round-trip", {
-                      tool_name: toolEvent.tool_name,
-                      fallbackId: callId,
-                    });
-                  }
-                  if (!session.yoloMode) {
-                    logger.info("Pausing stream for tool approval", { callId, tool_name: toolEvent.tool_name });
-                    session.history.push({
-                      role: 'model',
-                      parts: [{
-                        functionCall: {
-                          id: callId,
-                          name: toolEvent.tool_name,
-                          args: toolEvent.parameters ?? {},
-                        },
-                      }],
-                    } as any);
-                    sendEvent({
-                      type: 'TOOL_USE',
+                  case JsonStreamEventType.TOOL_USE: {
+                    const toolEvent = event as ToolUseEvent;
+                    const callId = toolEvent.tool_id ?? `call-${Date.now()}`;
+                    if (!toolEvent.tool_id) {
+                      logger.warn("TOOL_USE event missing tool_id; fallback may break round-trip", {
+                        tool_name: toolEvent.tool_name,
+                        fallbackId: callId,
+                      });
+                    }
+                    collectedTools.push({
                       tool_name: toolEvent.tool_name,
                       parameters: toolEvent.parameters ?? {},
                       tool_id: callId,
                     });
+                    break;
+                  }
+
+                  case JsonStreamEventType.ERROR:
+                    logger.error('Stream error from model', { error: (event as any).message });
+                    rollbackUserTurn();
+                    sendEvent({ type: 'ERROR', message: (event as any).message });
                     controller.close();
                     return;
-                  }
-                  logger.info('[Agent] Auto-executing tool: %s', toolEvent.tool_name);
-                  break;
+
+                  case JsonStreamEventType.RESULT:
+                    sawResult = true;
+                    resultStats = (event as any).stats;
+                    logger.info('Prompt turn finished', { status: (event as any).status, toolCount: collectedTools.length });
+                    break;
                 }
 
-                case JsonStreamEventType.ERROR:
-                  logger.error('Stream error from model', { error: (event as any).message });
-                  rollbackUserTurn();
-                  sendEvent({ type: 'ERROR', message: (event as any).message });
-                  break;
-
-                case JsonStreamEventType.RESULT:
-                  logger.info('Prompt completed', { status: (event as any).status });
-                  logger.debug('response text', { responseText: bufferedResponseText });
-                  appendModelTurn(bufferedResponseText);
-                  sendEvent({ type: 'RESULT', stats: (event as any).stats });
-                  break;
+                if (sawResult) break;
               }
+
+              if (!sawResult) break;
+
+              if (collectedTools.length === 0) {
+                logger.debug('response text', { responseText: bufferedResponseText });
+                appendModelTurn(bufferedResponseText);
+                sendEvent({ type: 'RESULT', stats: resultStats });
+                break;
+              }
+
+              if (!session.yoloMode) {
+                logger.info("Pausing stream for tool approval", { count: collectedTools.length });
+                const manualModelParts: any[] = [];
+                if (bufferedResponseText.trim()) {
+                  manualModelParts.push({ text: bufferedResponseText });
+                }
+                manualModelParts.push(
+                  ...collectedTools.map((t) => ({
+                    functionCall: { id: t.tool_id, name: t.tool_name, args: t.parameters },
+                  })),
+                );
+                session.history.push({ role: 'model', parts: manualModelParts } as any);
+                for (const t of collectedTools) {
+                  sendEvent({
+                    type: 'TOOL_USE',
+                    tool_name: t.tool_name,
+                    parameters: t.parameters,
+                    tool_id: t.tool_id,
+                  });
+                }
+                sendEvent({ type: 'RESULT', stats: resultStats });
+                controller.close();
+                return;
+              }
+
+              // YOLO: execute all tools, build response parts, resume agentic loop
+              const modelParts: any[] = [];
+              if (bufferedResponseText.trim()) {
+                modelParts.push({ text: bufferedResponseText });
+              }
+              modelParts.push(
+                ...collectedTools.map((t) => ({
+                  functionCall: { id: t.tool_id, name: t.tool_name, args: t.parameters },
+                })),
+              );
+              session.history.push({ role: 'model', parts: modelParts } as any);
+
+              const responseParts: any[] = [];
+              for (const t of collectedTools) {
+                const output = executeTool(
+                  t.tool_name,
+                  t.parameters,
+                  session.folderPath,
+                  true,
+                );
+                const parts = convertToFunctionResponse(
+                  t.tool_name,
+                  t.tool_id,
+                  output,
+                  session.client.currentModel,
+                );
+                responseParts.push(...parts);
+              }
+              session.client.setHistory(session.history as any);
+              syncHistoryFromCore();
+              bufferedResponseText = '';
+              currentStream = session.client.prompt(responseParts, {
+                signal: abortController.signal,
+                promptId: `prompt-${Date.now()}`,
+                sessionId: session.config.getSessionId(),
+              });
             }
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -259,7 +324,6 @@ export async function POST(req: NextRequest) {
 
         for await (const event of stream) {
           if (event.type === JsonStreamEventType.TOOL_USE) {
-            const toolEvent = event as { tool_name: string };
             if (!session.yoloMode) {
               rollbackUserTurn();
               return NextResponse.json(
@@ -267,7 +331,6 @@ export async function POST(req: NextRequest) {
                 { status: 409 }
               );
             }
-            logger.info('[Agent] Auto-executing tool: %s', toolEvent.tool_name);
             continue;
           }
           if (event.type === JsonStreamEventType.MESSAGE) {

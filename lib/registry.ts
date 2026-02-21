@@ -8,7 +8,7 @@ import {
   type JsonStreamEvent,
   type ServerGeminiStreamEvent,
 } from "@google/gemini-cli-core";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { scryptSync } from "node:crypto";
 import { createLogger } from "./logger";
@@ -258,6 +258,27 @@ function readYoloModeFromConfig(folderPath: string): boolean {
   }
 }
 
+/** Persist yoloMode to .gemini/settings.json so it survives restarts. */
+function persistYoloModeToConfig(folderPath: string, yoloMode: boolean): void {
+  const dir = join(folderPath, '.gemini');
+  const configPath = join(dir, 'settings.json');
+  let config: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      const raw = readFileSync(configPath, 'utf-8');
+      config = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // overwrite with minimal config
+    }
+  }
+  if (!config.security || typeof config.security !== 'object') {
+    config.security = {};
+  }
+  (config.security as Record<string, unknown>).disableYoloMode = !yoloMode;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+}
+
 class ClientRegistry {
   private sessions = new Map<string, ProjectSession>();
   private pendingInits = new Map<string, Promise<void>>();
@@ -484,10 +505,15 @@ class ClientRegistry {
     return session?.yoloMode ?? false;
   }
 
-  /** Set yoloMode for an existing session (runtime-only; does not persist to disk). */
+  /** Set yoloMode for an existing session and persist to .gemini/settings.json. */
   public async setYoloMode(folderPath: string, value: boolean, sessionId?: string): Promise<void> {
     const session = await this.getSession(folderPath, sessionId);
     session.yoloMode = value;
+    try {
+      persistYoloModeToConfig(session.folderPath, value);
+    } catch (err) {
+      log.warn('Failed to persist yoloMode to disk', { folder: session.folderPath, error: err });
+    }
     log.info('YOLO mode updated', { folder: session.folderPath, yoloMode: value });
   }
 }
