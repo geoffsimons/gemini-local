@@ -1,8 +1,14 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 
 # Check if gemini CLI is installed
 if ! command -v gemini &> /dev/null; then
     echo "Error: gemini CLI not found in PATH."
+    exit 1
+fi
+
+# Check if node is installed
+if ! command -v node &> /dev/null; then
+    echo "Error: Node.js not found in PATH."
     exit 1
 fi
 
@@ -58,59 +64,67 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
-# Process the output with Python to update files directly
-echo "$OUTPUT" | python3 -c "
-import sys, re, os
+# Process the output with Node.js to update files directly
+echo "$OUTPUT" | node -e "
+const fs = require('fs');
+const path = require('path');
 
-content = sys.stdin.read()
-# Regex to find blocks: <<<FILE:path>>> ... <<<END_FILE>>>
-pattern = r'<<<FILE:(.*?)>>>\s*(.*?)\s*<<<END_FILE>>>'
-matches = re.findall(pattern, content, re.DOTALL)
+let content = '';
+process.stdin.on('data', chunk => { content += chunk; });
+process.stdin.on('end', () => {
+    const pattern = /<<<FILE:(.*?)>>>\s*([\s\S]*?)\s*<<<END_FILE>>>/g;
+    let match;
+    let found = false;
 
-if not matches:
-    print('No new updates found in Gemini output.')
-    sys.exit(0)
+    while ((match = pattern.exec(content)) !== null) {
+        found = true;
+        let filename = match[1].trim();
+        const newContent = match[2].trim();
 
-for filename, new_content in matches:
-    filename = filename.strip()
-    new_content = new_content.strip()
+        // Ensure we are working with root files
+        if (filename.includes('/')) {
+            filename = path.basename(filename);
+        }
 
-    # Ensure we are working with root files
-    if '/' in filename:
-        filename = os.path.basename(filename)
+        if (!fs.existsSync(filename)) {
+            console.log('Warning: File ' + filename + ' not found, skipping.');
+            continue;
+        }
 
-    if not os.path.exists(filename):
-        print(f'Warning: File {filename} not found, skipping.')
-        continue
+        try {
+            const existingContent = fs.readFileSync(filename, 'utf8');
+            let updatedContent = existingContent;
 
-    try:
-        with open(filename, 'r') as f:
-            existing_content = f.read()
+            if (filename.includes('CHANGELOG')) {
+                // Insert BEFORE the first version header (## [...) to keep reverse chrono order
+                const headerRegex = /^##\s/m;
+                const headerMatch = headerRegex.exec(existingContent);
+                
+                if (headerMatch) {
+                    const idx = headerMatch.index;
+                    updatedContent = existingContent.slice(0, idx) + newContent + '\n\n' + existingContent.slice(idx);
+                } else {
+                    // If no headers found (new file), append to bottom
+                    updatedContent = existingContent.trimEnd() + '\n\n' + newContent + '\n';
+                }
+            } else if (filename.includes('DECISIONS')) {
+                // Append to the end
+                updatedContent = existingContent.trimEnd() + '\n\n' + newContent + '\n';
+            }
 
-        updated_content = existing_content
+            fs.writeFileSync(filename, updatedContent, 'utf8');
+            console.log('Updated ' + filename);
 
-        if 'CHANGELOG' in filename:
-            # Insert BEFORE the first version header (## [...) to keep reverse chrono order
-            # We look for the first '## ' to identify the start of the previous log
-            match = re.search(r'^##\s', existing_content, re.MULTILINE)
-            if match:
-                idx = match.start()
-                updated_content = existing_content[:idx] + new_content + '\n\n' + existing_content[idx:]
-            else:
-                # If no headers found (new file), append to bottom
-                updated_content = existing_content.rstrip() + '\n\n' + new_content + '\n'
+        } catch (err) {
+            console.error('Error updating ' + filename + ': ' + err.message);
+        }
+    }
 
-        elif 'DECISIONS' in filename:
-            # Append to the end
-            updated_content = existing_content.rstrip() + '\n\n' + new_content + '\n'
-
-        with open(filename, 'w') as f:
-            f.write(updated_content)
-
-        print(f'Updated {filename}')
-
-    except Exception as e:
-        print(f'Error updating {filename}: {e}')
+    if (!found) {
+        console.log('No new updates found in Gemini output.');
+        process.exit(0);
+    }
+});
 "
 
 echo "Done. Please review 'git diff' to verify changes before committing."

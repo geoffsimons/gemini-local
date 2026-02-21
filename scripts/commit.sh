@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 
 # Check if gemini CLI is installed
 if ! command -v gemini &> /dev/null; then
@@ -26,7 +26,8 @@ $diff_content"
         prompt="$prompt\n\nUser Hint: $hint_content"
     fi
 
-    echo "$prompt" | gemini
+    # Using echo -e to ensure newlines in the prompt are respected before piping
+    echo -e "$prompt" | gemini
 }
 
 HINT=""
@@ -34,12 +35,12 @@ while true; do
     echo "Generating commit message..."
     PROPOSED_MESSAGE=$(generate_commit_message "$HINT")
 
-    echo "\n--- PROPOSED COMMIT MESSAGE ---"
+    echo -e "\n--- PROPOSED COMMIT MESSAGE ---"
     echo "$PROPOSED_MESSAGE"
-    echo "-------------------------------\n"
+    echo -e "-------------------------------\n"
 
     echo -n "(A)ccept, (E)dit manually, (R)etry with hint, or (C)ancel? "
-    read -k 1 REPLY
+    read -n 1 -r REPLY
     echo ""
 
     case $REPLY in
@@ -49,7 +50,7 @@ while true; do
         [Ee])
             TMPFILE=$(mktemp /tmp/commit_msg.XXXXXX)
             echo "$PROPOSED_MESSAGE" > "$TMPFILE"
-            ${EDITOR:-vim} "$TMPFILE"
+            ${EDITOR:-nano} "$TMPFILE"
             FINAL_MESSAGE=$(cat "$TMPFILE")
             rm "$TMPFILE"
             if [[ -n "$FINAL_MESSAGE" ]]; then
