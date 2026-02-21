@@ -1,6 +1,6 @@
 {
   "name": "gemini-local",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A robust local HTTP bridge for Google's Gemini CLI. Features enhanced multi-modal capabilities (stitching), automatic hallucination fixes, and a production-ready Next.js chat UI.",
   "private": true,
   "license": "MIT",

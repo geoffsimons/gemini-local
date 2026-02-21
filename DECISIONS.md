@@ -47,3 +47,9 @@
 - **Context:** Following the establishment of the tool state machine (ADR-007), we needed a concrete implementation for executing tools on the server that bridges the model's requests with the local environment.
 - **Decision:** Integrate the `@google/gemini-cli-core` SDK's `ToolRegistry` directly into the chat pipeline. The API resolves tool calls, executes them locally, and injects the results back into the session history to continue the conversation loop.
 - **Consequences:** Provides a unified execution environment for both CLI and Web interfaces; enables the model to perform complex, multi-step tasks autonomously; requires strict handling of tool execution errors and history state to prevent loop divergence.
+
+## ADR-009: Reasoning and Thought Process Streaming
+- **Status:** Accepted
+- **Context:** Advanced reasoning models (e.g., Gemini 2.0 Thinking) emit internal thought processes before or alongside the final response. We need a way to stream and display these tokens without polluting the primary message content or disrupting the conversational flow.
+- **Decision:** Capture reasoning tokens in a dedicated metadata channel during the streaming process. Render these "thoughts" in a collapsible, distinct UI block within each message component. This allows the user to inspect the model's logic without it cluttering the main chat interface.
+- **Consequences:** Provides transparency into model reasoning; maintains a clean primary chat UI; requires the frontend to manage a secondary content state for each message and handle the "thinking" status during active streams.

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-02-21
+- Add retry generation capability and the ability to stop assistant responses in the chat playground.
+- Implement real-time thought streaming and display with collapsible UI blocks for model reasoning.
+- Harden streaming API stability by consolidating and safely handling stream controller closures.
+
 ## [Unreleased] - 2026-02-20
 - Implement server-side tool execution using the SDK `ToolRegistry` for automated and manual flows.
 - Support multiple tool calls per interaction turn with persistent YOLO mode state.
