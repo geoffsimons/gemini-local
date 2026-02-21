@@ -41,3 +41,9 @@
 - **Context:** The agent can request tool execution; we need a clear state machine that supports both manual UI approval and automated (YOLO) execution driven by project or user preference.
 - **Decision:** Support two modes: manual approval (stream yields `TOOL_USE` then terminates so the UI can show an "Action Required" card with Approve/Reject) and YOLO (tools are auto-executed; execution logic integrated in a later phase). Initial `yoloMode` is read from the project's `.gemini/settings.json` (`security.disableYoloMode`); a runtime toggle is exposed via `/api/chat/config` (GET/PATCH) and a header switch in the UI.
 - **Consequences:** Session type gains `yoloMode`; prompt route intercepts `TOOL_USE` and branches; frontend holds `pendingToolCall` and syncs `yoloMode` with the backend. Tool execution itself is stubbed in YOLO until the next phase.
+
+## ADR-008: Server-Side Tool Execution via SDK Registry
+- **Status:** Accepted
+- **Context:** Following the establishment of the tool state machine (ADR-007), we needed a concrete implementation for executing tools on the server that bridges the model's requests with the local environment.
+- **Decision:** Integrate the `@google/gemini-cli-core` SDK's `ToolRegistry` directly into the chat pipeline. The API resolves tool calls, executes them locally, and injects the results back into the session history to continue the conversation loop.
+- **Consequences:** Provides a unified execution environment for both CLI and Web interfaces; enables the model to perform complex, multi-step tasks autonomously; requires strict handling of tool execution errors and history state to prevent loop divergence.

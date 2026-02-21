@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-02-20
+- Implement server-side tool execution using the SDK `ToolRegistry` for automated and manual flows.
+- Support multiple tool calls per interaction turn with persistent YOLO mode state.
+- Enable dynamic model selection and switching for active project sessions.
+- Harden streaming API responses and history management for complex tool-use sequences.
+- Enhance smoke test suite with multi-round tool fulfillment and human-in-the-loop validation.
+- Synchronize codebase project rules with ADR-defined agentic workflows.
+
 ## [Unreleased] - 2026-02-18
 - Add support for ephemeral sessions and custom session IDs for isolated API interactions.
 - Enhance playground UI with improved chat input interaction and focus management.
