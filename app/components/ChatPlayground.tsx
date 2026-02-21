@@ -41,6 +41,7 @@ interface ChatPlaygroundProps {
   onClearMessages: () => void;
   onAddSystemMessage: (text: string) => void;
   thinkingState: string | null;
+  activeThoughts: Array<{ subject: string; description: string }>;
   activeModel: string | null;
   pendingToolCall: PendingToolCall[] | null;
   onApproveToolCall: (folderPath: string) => void | Promise<void>;
@@ -72,6 +73,7 @@ export default function ChatPlayground({
   onClearMessages,
   onAddSystemMessage,
   thinkingState,
+  activeThoughts,
   activeModel,
   pendingToolCall,
   onApproveToolCall,
@@ -455,6 +457,24 @@ export default function ChatPlayground({
           </div>
         )}
       </div>
+
+      {/* Active thoughts (ephemeral system log) */}
+      {activeThoughts.length > 0 && (
+        <div className="border-t border-border bg-surface-1 px-4 py-2">
+          <ul className="mx-auto max-w-3xl space-y-1 font-mono text-[11px]">
+            {activeThoughts.map((t, i) => (
+              <li key={i} className="flex flex-col gap-0.5">
+                {t.subject ? (
+                  <span className="text-text-primary">{t.subject}</span>
+                ) : null}
+                {t.description ? (
+                  <span className="text-text-muted">{t.description}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Image previews */}
       {images.length > 0 && (

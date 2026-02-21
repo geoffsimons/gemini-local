@@ -150,6 +150,7 @@ export function useChat() {
   const [thinkingState, setThinkingState] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall[] | null>(null);
+  const [activeThoughts, setActiveThoughts] = useState<Array<{ subject: string; description: string }>>([]);
   const [yoloMode, setYoloModeState] = useState(false);
   const idCounter = useRef(0);
   const lastStreamingAssistantIdRef = useRef<string | null>(null);
@@ -173,6 +174,7 @@ export function useChat() {
       setSending(true);
       setThinkingState(null);
       setPendingToolCall(null);
+      setActiveThoughts([]);
 
       try {
         const res = await fetch("/api/chat/prompt", {
@@ -228,9 +230,19 @@ export function useChat() {
                 content?: string;
                 delta?: boolean;
                 message?: string;
+                subject?: string;
+                description?: string;
               };
 
               switch (event.type) {
+                case "THOUGHT":
+                  if (event.subject !== undefined || event.description !== undefined) {
+                    setActiveThoughts((prev) => [
+                      ...prev,
+                      { subject: event.subject ?? "", description: event.description ?? "" },
+                    ]);
+                  }
+                  break;
                 case "INIT":
                   if (event.model) setActiveModel(event.model);
                   break;
@@ -584,6 +596,7 @@ export function useChat() {
     clearMessages,
     addSystemMessage,
     thinkingState,
+    activeThoughts,
     activeModel,
     pendingToolCall,
     clearPendingToolCall,

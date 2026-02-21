@@ -69,17 +69,14 @@ function* serverEventToJsonStreamEvents(
       break;
     }
     case GeminiEventType.Thought: {
-      const e = event as { value: { summary?: string } };
-      const text = e.value?.summary ?? '';
-      if (text) {
-        yield {
-          type: JsonStreamEventType.MESSAGE,
-          timestamp: ts,
-          role: 'assistant' as const,
-          content: text,
-          delta: true,
-        };
-      }
+      const e = event as { value: { subject?: string; description?: string } };
+      const subject = e.value?.subject ?? '';
+      const description = e.value?.description ?? '';
+      yield {
+        type: 'THOUGHT' as const,
+        subject,
+        description,
+      } as unknown as JsonStreamEvent;
       break;
     }
     case GeminiEventType.ToolCallRequest: {

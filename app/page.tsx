@@ -26,6 +26,7 @@ export default function HubConsole() {
     clearMessages,
     addSystemMessage,
     thinkingState,
+    activeThoughts,
     activeModel,
     pendingToolCall,
     onApproveToolCall,
@@ -116,6 +117,7 @@ export default function HubConsole() {
             onClearMessages={clearMessages}
             onAddSystemMessage={addSystemMessage}
             thinkingState={thinkingState}
+            activeThoughts={activeThoughts}
             activeModel={activeModel}
             pendingToolCall={pendingToolCall}
             onApproveToolCall={onApproveToolCall}

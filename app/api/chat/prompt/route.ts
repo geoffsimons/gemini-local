@@ -176,6 +176,11 @@ export async function POST(req: NextRequest) {
               for await (const event of currentStream) {
                 logger.debug('Stream event', { type: event.type });
 
+                if ((event as { type?: string }).type === 'THOUGHT') {
+                  const thought = event as unknown as { subject: string; description: string };
+                  sendEvent({ type: 'THOUGHT', subject: thought.subject, description: thought.description });
+                }
+
                 switch (event.type) {
                   case JsonStreamEventType.INIT:
                     logger.info('Stream initialized', { model: (event as any).model });
