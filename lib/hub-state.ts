@@ -206,6 +206,7 @@ export function useChat() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let sawToolUse = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -245,6 +246,7 @@ export function useChat() {
                   const pathVal = typeof params.path === "string" ? params.path : undefined;
                   const label = pathVal ? `Reading ${pathVal}` : `Using ${event.tool_name ?? "tool"}`;
                   setThinkingState(label);
+                  sawToolUse = true;
                   break;
                 }
                 case "MESSAGE":
@@ -283,6 +285,7 @@ export function useChat() {
               console.error("Failed to parse NDJSON event", err);
             }
           }
+          if (sawToolUse) break;
         }
       } catch (err: any) {
         setThinkingState(null);
@@ -382,6 +385,58 @@ export function useChat() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let sawToolUse = false;
+
+        const processLine = (trimmed: string) => {
+          try {
+            const event = JSON.parse(trimmed) as {
+              type: string;
+              content?: string;
+              delta?: boolean;
+              message?: string;
+              tool_name?: string;
+              tool_id?: string;
+              parameters?: Record<string, unknown>;
+            };
+            if (event.type === "MESSAGE" && lastAssistantId) {
+              if (event.delta) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === lastAssistantId
+                      ? { ...m, text: m.text + (event.content ?? "") }
+                      : m,
+                  ),
+                );
+              } else if (event.content !== undefined) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === lastAssistantId ? { ...m, text: event.content ?? "" } : m,
+                  ),
+                );
+              }
+            } else if (event.type === "TOOL_USE") {
+              setPendingToolCall({
+                type: "TOOL_USE",
+                tool_name: event.tool_name ?? "tool",
+                parameters: event.parameters ?? {},
+                ...(event.tool_id && { tool_id: event.tool_id }),
+              });
+              sawToolUse = true;
+            } else if (event.type === "ERROR" && event.message && lastAssistantId) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === lastAssistantId
+                    ? { ...m, text: m.text + `\n\n[Error: ${event.message}]` }
+                    : m,
+                ),
+              );
+            } else if (event.type === "RESULT" || event.type === "ERROR") {
+              setThinkingState(null);
+            }
+          } catch {
+            // ignore parse errors
+          }
+        };
 
         while (true) {
           const { done, value } = await reader.read();
@@ -393,45 +448,14 @@ export function useChat() {
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
-            try {
-              const event = JSON.parse(trimmed) as {
-                type: string;
-                content?: string;
-                delta?: boolean;
-                message?: string;
-              };
-              if (event.type === "MESSAGE" && lastAssistantId) {
-                if (event.delta) {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === lastAssistantId
-                        ? { ...m, text: m.text + (event.content ?? "") }
-                        : m,
-                    ),
-                  );
-                } else if (event.content !== undefined) {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === lastAssistantId ? { ...m, text: event.content ?? "" } : m,
-                    ),
-                  );
-                }
-              } else if (event.type === "ERROR" && event.message && lastAssistantId) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === lastAssistantId
-                      ? { ...m, text: m.text + `\n\n[Error: ${event.message}]` }
-                      : m,
-                  ),
-                );
-              } else if (event.type === "RESULT" || event.type === "ERROR") {
-                setThinkingState(null);
-              }
-            } catch {
-              // ignore parse errors
-            }
+            processLine(trimmed);
+            if (sawToolUse) break;
           }
+          if (sawToolUse) break;
         }
+
+        const remainder = buffer.trim();
+        if (remainder) processLine(remainder);
       } catch (err: any) {
         setThinkingState(null);
         addSystemMessage(`Tool error: ${err.message ?? "Request failed"}`);
@@ -481,6 +505,50 @@ export function useChat() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let sawToolUse = false;
+
+        const processLine = (trimmed: string) => {
+          try {
+            const event = JSON.parse(trimmed) as {
+              type: string;
+              content?: string;
+              delta?: boolean;
+              message?: string;
+              tool_name?: string;
+              tool_id?: string;
+              parameters?: Record<string, unknown>;
+            };
+            if (event.type === "MESSAGE" && lastAssistantId) {
+              if (event.delta) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === lastAssistantId
+                      ? { ...m, text: m.text + (event.content ?? "") }
+                      : m,
+                  ),
+                );
+              } else if (event.content !== undefined) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === lastAssistantId ? { ...m, text: event.content ?? "" } : m,
+                  ),
+                );
+              }
+            } else if (event.type === "TOOL_USE") {
+              setPendingToolCall({
+                type: "TOOL_USE",
+                tool_name: event.tool_name ?? "tool",
+                parameters: event.parameters ?? {},
+                ...(event.tool_id && { tool_id: event.tool_id }),
+              });
+              sawToolUse = true;
+            } else if (event.type === "RESULT" || event.type === "ERROR") {
+              setThinkingState(null);
+            }
+          } catch {
+            // ignore
+          }
+        };
 
         while (true) {
           const { done, value } = await reader.read();
@@ -492,37 +560,14 @@ export function useChat() {
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
-            try {
-              const event = JSON.parse(trimmed) as {
-                type: string;
-                content?: string;
-                delta?: boolean;
-                message?: string;
-              };
-              if (event.type === "MESSAGE" && lastAssistantId) {
-                if (event.delta) {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === lastAssistantId
-                        ? { ...m, text: m.text + (event.content ?? "") }
-                        : m,
-                    ),
-                  );
-                } else if (event.content !== undefined) {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === lastAssistantId ? { ...m, text: event.content ?? "" } : m,
-                    ),
-                  );
-                }
-              } else if (event.type === "RESULT" || event.type === "ERROR") {
-                setThinkingState(null);
-              }
-            } catch {
-              // ignore
-            }
+            processLine(trimmed);
+            if (sawToolUse) break;
           }
+          if (sawToolUse) break;
         }
+
+        const remainder = buffer.trim();
+        if (remainder) processLine(remainder);
       } catch {
         addSystemMessage("Tool rejection request failed.");
       } finally {
