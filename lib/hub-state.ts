@@ -150,7 +150,6 @@ export function useChat() {
   const [thinkingState, setThinkingState] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall[] | null>(null);
-  const [activeThoughts, setActiveThoughts] = useState<Array<{ subject: string; description: string }>>([]);
   const [yoloMode, setYoloModeState] = useState(false);
   const idCounter = useRef(0);
   const lastStreamingAssistantIdRef = useRef<string | null>(null);
@@ -174,7 +173,6 @@ export function useChat() {
       setSending(true);
       setThinkingState(null);
       setPendingToolCall(null);
-      setActiveThoughts([]);
 
       try {
         const res = await fetch("/api/chat/prompt", {
@@ -237,10 +235,16 @@ export function useChat() {
               switch (event.type) {
                 case "THOUGHT":
                   if (event.subject !== undefined || event.description !== undefined) {
-                    setActiveThoughts((prev) => [
-                      ...prev,
-                      { subject: event.subject ?? "", description: event.description ?? "" },
-                    ]);
+                    const append = `\n- **${event.subject ?? ""}**: ${event.description ?? ""}`;
+                    setMessages((prev) => {
+                      const last = prev[prev.length - 1];
+                      if (!last || last.role !== "assistant") return prev;
+                      return prev.map((m) =>
+                        m.id === assistantId
+                          ? { ...m, thought: (m.thought ?? "") + append }
+                          : m,
+                      );
+                    });
                   }
                   break;
                 case "INIT":
@@ -596,7 +600,6 @@ export function useChat() {
     clearMessages,
     addSystemMessage,
     thinkingState,
-    activeThoughts,
     activeModel,
     pendingToolCall,
     clearPendingToolCall,

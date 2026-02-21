@@ -41,7 +41,6 @@ interface ChatPlaygroundProps {
   onClearMessages: () => void;
   onAddSystemMessage: (text: string) => void;
   thinkingState: string | null;
-  activeThoughts: Array<{ subject: string; description: string }>;
   activeModel: string | null;
   pendingToolCall: PendingToolCall[] | null;
   onApproveToolCall: (folderPath: string) => void | Promise<void>;
@@ -73,7 +72,6 @@ export default function ChatPlayground({
   onClearMessages,
   onAddSystemMessage,
   thinkingState,
-  activeThoughts,
   activeModel,
   pendingToolCall,
   onApproveToolCall,
@@ -458,24 +456,6 @@ export default function ChatPlayground({
         )}
       </div>
 
-      {/* Active thoughts (ephemeral system log) */}
-      {activeThoughts.length > 0 && (
-        <div className="border-t border-border bg-surface-1 px-4 py-2">
-          <ul className="mx-auto max-w-3xl space-y-1 font-mono text-[11px]">
-            {activeThoughts.map((t, i) => (
-              <li key={i} className="flex flex-col gap-0.5">
-                {t.subject ? (
-                  <span className="text-text-primary">{t.subject}</span>
-                ) : null}
-                {t.description ? (
-                  <span className="text-text-muted">{t.description}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* Image previews */}
       {images.length > 0 && (
         <div className="flex gap-2 border-t border-border bg-surface-1 px-4 py-2">
@@ -622,15 +602,16 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-surface-2 text-text-primary"
         }`}
       >
-        {/* Thought metadata (Thinking UI block) */}
-        {!isUser && message.thought && (
-          <div className="mb-3 border-l-2 border-accent/40 bg-accent/5 px-3 py-1.5 font-mono text-[10px] italic leading-tight text-text-muted">
-            <div className="mb-1 flex items-center gap-1.5 uppercase tracking-widest opacity-60">
-              <Bot size={10} />
-              Thinking
+        {/* Thought process (collapsible) */}
+        {!isUser && message.thought?.trim() && (
+          <details className="mb-3">
+            <summary className="cursor-pointer list-none font-mono text-xs text-text-muted before:inline-block before:mr-1 before:content-[''] [&::-webkit-details-marker]:hidden">
+              Thinking Process...
+            </summary>
+            <div className="mt-1.5 rounded bg-surface-3 px-3 py-2 font-mono text-[11px] text-text-secondary whitespace-pre-wrap">
+              {message.thought.trim()}
             </div>
-            {message.thought}
-          </div>
+          </details>
         )}
 
         {/* Image previews */}
