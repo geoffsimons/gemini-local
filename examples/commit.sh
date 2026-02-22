@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# Compatible with Bash and Zsh.
-
 # Gemini Local Hub - Example Commit Utility
 # Usage: Copy this to your project root and run ./commit.sh
+# Requirements: curl, node
 
 set -euo pipefail
 
 HUB_URL="http://localhost:3000/api/chat/prompt"
 PROJECT_PATH="$(pwd -P)"
 
-# 1. Health Check
+# 1. Preflight — curl and node required
+for cmd in curl node; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "❌ Required tool '$cmd' is not installed. Please install it and try again."
+    exit 1
+  fi
+done
+
+# 2. Health Check
 if ! curl -s -f "http://localhost:3000/api/health" > /dev/null; then
     echo "❌ Error: Gemini Local Hub is not running at localhost:3000."
     exit 1
 fi
 
-# 2. Check for staged changes
+# 3. Check for staged changes
 if git diff --cached --quiet; then
     echo "⚠️ Error: No changes staged for commit."
     exit 1
@@ -46,10 +53,12 @@ User Hint: ${hint_content}"
 
     # API Request to Hub with EPHEMERAL flag to prevent context pollution
     local PAYLOAD
-    PAYLOAD=$(jq -n \
-      --arg fp "$PROJECT_PATH" \
-      --arg msg "$prompt" \
-      '{folderPath: $fp, message: $msg, ephemeral: true}')
+    PAYLOAD=$(echo "$prompt" | node -e "
+      const fs = require('fs');
+      const fp = process.argv[1];
+      const msg = fs.readFileSync(0, 'utf8');
+      console.log(JSON.stringify({ folderPath: fp, message: msg, ephemeral: true }));
+    " "$PROJECT_PATH")
 
     local response
     local raw
@@ -59,7 +68,7 @@ User Hint: ${hint_content}"
       raw=$(curl -s -X POST "$HUB_URL" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD")
-      response=$(echo "$raw" | jq -r '.response')
+      response=$(echo "$raw" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.response!=null?d.response:'')")
       if [[ -n "$response" && "$response" != "null" ]]; then
         echo "$response"
         return 0
