@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Gemini Local Hub - Example Commit Utility
-# Usage: Copy this to your project root and run ./commit.sh
+# Usage: Copy this to your project root and run ./commit.sh [-m "hint"]
+# Optional: -m "hint" passes a hint to the commit message generator.
 # Requirements: curl, node
 
 set -euo pipefail
@@ -27,6 +28,15 @@ if git diff --cached --quiet; then
     echo "⚠️ Error: No changes staged for commit."
     exit 1
 fi
+
+# 4. Parse optional -m hint
+HINT=""
+while getopts 'm:' opt; do
+    case $opt in
+        m) HINT="$OPTARG" ;;
+    esac
+done
+shift $((OPTIND - 1))
 
 generate_commit_message() {
     local diff_content
@@ -81,50 +91,19 @@ User Hint: ${hint_content}"
     echo "$response"
 }
 
-HINT=""
-while true; do
-    echo "🤖 Generating commit message via Gemini Hub (Isolated Context)..."
-    PROPOSED_MESSAGE="$(generate_commit_message "$HINT")"
+echo "🤖 Generating commit message via Gemini Hub (Isolated Context)..."
+PROPOSED_MESSAGE="$(generate_commit_message "$HINT")"
 
-    if [[ -z "$PROPOSED_MESSAGE" || "$PROPOSED_MESSAGE" == "null" ]]; then
-        echo "❌ Error: Failed to get a response from the Hub."
-        exit 1
-    fi
+if [[ -z "$PROPOSED_MESSAGE" || "$PROPOSED_MESSAGE" == "null" ]]; then
+    echo "❌ Error: Failed to get a response from the Hub."
+    exit 1
+fi
 
-    echo ""
-    echo "--- PROPOSED COMMIT MESSAGE ---"
-    echo "$PROPOSED_MESSAGE"
-    echo "-------------------------------"
-    echo ""
+echo ""
+echo "--- PROPOSED COMMIT MESSAGE ---"
+echo "$PROPOSED_MESSAGE"
+echo "-------------------------------"
+echo ""
 
-    echo -n "(A)ccept, (E)dit manually, (R)etry with hint, or (C)ancel? "
-    read -n 1 -r REPLY
-    echo ""
-
-    case "$REPLY" in
-        [Aa])
-            git commit -m "$PROPOSED_MESSAGE"
-            exit $? ;;
-        [Ee])
-            TMPFILE="$(mktemp /tmp/commit_msg.XXXXXX)"
-            echo "$PROPOSED_MESSAGE" > "$TMPFILE"
-            "${EDITOR:-vim}" "$TMPFILE"
-            FINAL_MESSAGE="$(cat "$TMPFILE")"
-            rm "$TMPFILE"
-            if [[ -n "$FINAL_MESSAGE" ]]; then
-                git commit -m "$FINAL_MESSAGE"
-            else
-                echo "Cancelled."
-            fi
-            exit 0 ;;
-        [Rr])
-            echo -n "Enter hint for retry: "
-            read -r HINT
-            continue ;;
-        [Cc])
-            echo "Commit cancelled."
-            exit 0 ;;
-        *)
-            echo "Invalid option." ;;
-    esac
-done
+git commit -m "$PROPOSED_MESSAGE"
+exit $?

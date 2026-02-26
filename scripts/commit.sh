@@ -12,6 +12,15 @@ if git diff --cached --quiet; then
     exit 1
 fi
 
+# Parse optional -m hint
+HINT=""
+while getopts 'm:' opt; do
+    case $opt in
+        m) HINT="$OPTARG" ;;
+    esac
+done
+shift $((OPTIND - 1))
+
 generate_commit_message() {
     local diff_content=$(git diff --cached)
     local hint_content=$1
@@ -30,44 +39,20 @@ $diff_content"
     echo -e "$prompt" | gemini
 }
 
-HINT=""
-while true; do
-    echo "Generating commit message..."
-    PROPOSED_MESSAGE=$(generate_commit_message "$HINT")
+echo "Generating commit message..."
+PROPOSED_MESSAGE="$(generate_commit_message "$HINT")"
 
-    echo -e "\n--- PROPOSED COMMIT MESSAGE ---"
-    echo "$PROPOSED_MESSAGE"
-    echo -e "-------------------------------\n"
+if [[ -z "$PROPOSED_MESSAGE" ]]; then
+    echo "Error: Failed to get a response from gemini."
+    exit 1
+fi
 
-    echo -n "(A)ccept, (E)dit manually, (R)etry with hint, or (C)ancel? "
-    read -n 1 -r REPLY
-    echo ""
+echo ""
+echo "--- PROPOSED COMMIT MESSAGE ---"
+echo "$PROPOSED_MESSAGE"
+echo "-------------------------------"
+echo ""
 
-    case $REPLY in
-        [Aa])
-            git commit -m "$PROPOSED_MESSAGE"
-            exit $? ;;
-        [Ee])
-            TMPFILE=$(mktemp /tmp/commit_msg.XXXXXX)
-            echo "$PROPOSED_MESSAGE" > "$TMPFILE"
-            ${EDITOR:-nano} "$TMPFILE"
-            FINAL_MESSAGE=$(cat "$TMPFILE")
-            rm "$TMPFILE"
-            if [[ -n "$FINAL_MESSAGE" ]]; then
-                git commit -m "$FINAL_MESSAGE"
-                exit $?
-            else
-                echo "Empty commit message. Cancelled."
-                exit 1
-            fi ;;
-        [Rr])
-            echo -n "Enter hint for retry: "
-            read HINT
-            continue ;;
-        [Cc])
-            echo "Commit cancelled."
-            exit 0 ;;
-        *)
-            echo "Invalid option." ;;
-    esac
-done
+git commit -m "$PROPOSED_MESSAGE"
+exit $?
+
