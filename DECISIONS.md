@@ -53,3 +53,9 @@
 - **Context:** Advanced reasoning models (e.g., Gemini 2.0 Thinking) emit internal thought processes before or alongside the final response. We need a way to stream and display these tokens without polluting the primary message content or disrupting the conversational flow.
 - **Decision:** Capture reasoning tokens in a dedicated metadata channel during the streaming process. Render these "thoughts" in a collapsible, distinct UI block within each message component. This allows the user to inspect the model's logic without it cluttering the main chat interface.
 - **Consequences:** Provides transparency into model reasoning; maintains a clean primary chat UI; requires the frontend to manage a secondary content state for each message and handle the "thinking" status during active streams.
+
+## ADR-010: Node.js for JSON Processing in Scripts
+- **Status:** Accepted
+- **Context:** Previous integration scripts relied on `jq` for JSON manipulation (as per ADR-005), which introduced a system-level dependency that is not consistently available across all developer environments.
+- **Decision:** Replace `jq` with Node.js scripts for all JSON processing and data manipulation within internal utilities, scripts, and examples.
+- **Consequences:** Eliminates the `jq` dependency; ensures more robust and maintainable JSON handling using the project's primary runtime; simplifies the developer environment setup by consolidating tools.

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-03-04
+- Migrate default server port to 2999 and add environment variable support for port configuration.
+- Enhance automated commit scripts with hint flag support and non-interactive mode.
+- Replace `jq` with Node.js for JSON processing in scripts to reduce external dependencies and improve reliability.
+- Standardize scripting toolchain on Bash and Node.js and introduce a documentation update utility.
+- Update project README with refined architectural pillars and comprehensive developer usage guides.
+
 ## [Unreleased] - 2026-02-21
 - Add retry generation capability and the ability to stop assistant responses in the chat playground.
 - Implement real-time thought streaming and display with collapsible UI blocks for model reasoning.
