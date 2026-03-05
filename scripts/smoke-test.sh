@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HUB_URL="${HUB_URL:-http://localhost:3000/api}"
+HUB_PORT=${GEMINI_HUB_PORT:-2999}
+HUB_URL="${HUB_URL:-http://localhost:${HUB_PORT}/api}"
 TEST_PROJECT=$(mktemp -d -t gemini-test-project.XXXXXX)
 GOVERNANCE_PROJECT=""
 

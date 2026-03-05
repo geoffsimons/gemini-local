@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { env } from "node:process";
 
 const folderPath = process.argv[2];
 if (!folderPath) {
@@ -14,8 +15,9 @@ if (!folderPath) {
   process.exit(1);
 }
 
-const PROMPT_URL = "http://localhost:3000/api/chat/prompt";
-const TOOL_URL = "http://localhost:3000/api/chat/tool";
+const HUB_PORT=Number(env.GEMINI_HUB_PORT ?? 2999);
+const PROMPT_URL = `http://localhost:${HUB_PORT}/api/chat/prompt`;
+const TOOL_URL = `http://localhost:${HUB_PORT}/api/chat/tool`;
 const TIMEOUT_MS = 60_000;
 const MAX_TOOL_ROUNDS = 10;
 

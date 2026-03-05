@@ -17,7 +17,7 @@ npm install
 # Start the server in development mode
 npm run dev
 ```
-The Hub Console will be available at `http://localhost:3000`.
+The Hub Console will be available at `http://localhost:2999`.
 
 ## 2. UI Workflow & Features
 

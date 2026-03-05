@@ -1,13 +1,14 @@
 /**
  * Integration test suite for the Hub API lifecycle.
  *
- * Requires a running Next.js server (default: http://localhost:3000).
+ * Requires a running Next.js server (default: http://localhost:2999).
  * Run with:  npx tsx tests/integration.test.ts
  *
- * Override the server URL:  HUB_URL=http://localhost:4000 npx tsx tests/integration.test.ts
+ * Override the server URL:  GEMINI_HUB_PORT=2999 npx tsx tests/integration.test.ts
  * Override the project dir: TEST_FOLDER=/absolute/path npx tsx tests/integration.test.ts
  */
 
+import { env } from "node:process";
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -16,10 +17,11 @@ import path from "node:path";
 // Configuration
 // ---------------------------------------------------------------------------
 
-const BASE_URL = process.env.HUB_URL || "http://localhost:3000";
+const HUB_PORT=Number(env.GEMINI_HUB_PORT ?? 2999);
+const BASE_URL = `http://localhost:${HUB_PORT}`;
 
 // Default to the hub root — a real folder that contains GEMINI.md.
-const FOLDER_PATH = process.env.TEST_FOLDER || path.resolve(process.cwd());
+const FOLDER_PATH = env.TEST_FOLDER ?? path.resolve(process.cwd());
 
 // Gemini round-trips can be slow; give every test generous headroom.
 const PROMPT_TIMEOUT_MS = 120_000;

@@ -5,7 +5,8 @@
 
 set -euo pipefail
 
-HUB_URL="http://localhost:3000/api/chat/prompt"
+HUB_PORT=${GEMINI_HUB_PORT:-2999}
+HUB_URL="http://localhost:${HUB_PORT}/api/chat/prompt"
 PROJECT_PATH="$(pwd -P)"
 
 # 1. Preflight — curl and node required
@@ -17,8 +18,8 @@ for cmd in curl node; do
 done
 
 # 2. Health Check
-if ! curl -s -f "http://localhost:3000/api/health" > /dev/null; then
-  echo "❌ Error: Gemini Local Hub is not running at localhost:3000."
+if ! curl -s -f "http://localhost:${HUB_PORT}/api/health" > /dev/null; then
+  echo "❌ Error: Gemini Local Hub is not running at localhost:${HUB_PORT}."
   exit 1
 fi
 

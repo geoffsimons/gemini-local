@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+
+import { env } from "node:process";
+
 /**
  * Validates the Gemini 3.1 Pro agentic streaming pipeline by POSTing to
  * /api/chat/prompt with stream: true and asserting INIT + MESSAGE (content) events.
@@ -10,7 +13,8 @@ if (!folderPath) {
   process.exit(1);
 }
 
-const PROMPT_URL = 'http://localhost:3000/api/chat/prompt';
+const HUB_PORT=Number(env.GEMINI_HUB_PORT) || 2999;
+const PROMPT_URL = `http://localhost:${HUB_PORT}/api/chat/prompt`;
 const TIMEOUT_MS: number = 30_000;
 
 const payload = {
