@@ -33,9 +33,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Folder not trusted' }, { status: 403 });
     }
 
-    // Ensure path is persisted in trust list (idempotent) so subsequent requests see it
-    await addTrustedFolder(resolvedPath);
-
     logger.info('Start (warm-up) requested', { folder: resolvedPath, sessionId });
 
     // 2. Existence check

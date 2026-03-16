@@ -69,9 +69,23 @@ fi
 echo "✅ Hub is healthy"
 
 # ---------------------------------------------------------------------------
-# 3. Registration — warm up a session for this project
+# 3. Trust Registry — authorize the folder in the Hub
 # ---------------------------------------------------------------------------
-echo "📡 Registering project with the Hub ..."
+echo "🛡️ Authorizing project in the trust registry..."
+
+REGISTRY_PAYLOAD="$(node -e "console.log(JSON.stringify({ folderPath: process.argv[1] }));" "$PROJECT_PATH")"
+
+curl -sf -X POST "${HUB_URL}/api/registry/add" \
+  -H "Content-Type: application/json" \
+  -d "$REGISTRY_PAYLOAD" >/dev/null || {
+  echo "❌ Failed to authorize project in the trust registry."
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# 4. Session Warm-up — initialize the LLM context
+# ---------------------------------------------------------------------------
+echo "📡 Warming up Gemini session..."
 
 START_PAYLOAD="$(node -e "
 const fp = process.argv[1];
@@ -84,12 +98,12 @@ console.log(JSON.stringify(o));
 START_RESPONSE="$(curl -sf -X POST "${HUB_URL}/api/chat/start" \
   -H "Content-Type: application/json" \
   -d "$START_PAYLOAD" 2>/dev/null)" || {
-  echo "❌ Failed to register project. Is the path valid?"
+  echo "❌ Failed to warm up project. Is the path valid?"
   exit 1
 }
 
 # ---------------------------------------------------------------------------
-# 4. Validation — confirm the Hub accepted the project
+# 5. Validation — confirm the Hub accepted the project
 # ---------------------------------------------------------------------------
 START_STATUS="$(echo "$START_RESPONSE" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.status||'')")"
 RESOLVED_PATH="$(echo "$START_RESPONSE" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.folderPath||'')")"
