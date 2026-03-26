@@ -81,7 +81,12 @@ PAYLOAD=$(echo "$PROMPT" | node -e "
   const fs = require('fs');
   const fp = process.argv[1];
   const msg = fs.readFileSync(0, 'utf8');
-  console.log(JSON.stringify({ folderPath: fp, message: msg }));
+  console.log(JSON.stringify({
+    folderPath: fp,
+    message: msg,
+    ephemeral: true,
+    model: 'gemini-3-flash-preview'
+  }));
 " "$PROJECT_PATH")
 
 OUTPUT=""
