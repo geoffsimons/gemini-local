@@ -73,8 +73,7 @@ User Hint: ${hint_content}"
       console.log(JSON.stringify({
         folderPath: fp,
         message: msg,
-        ephemeral: true,
-        model: 'gemini-3-flash-preview'
+        ephemeral: true
       }));
     " "$PROJECT_PATH")
 
