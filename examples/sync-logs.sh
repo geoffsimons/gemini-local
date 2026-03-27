@@ -85,18 +85,31 @@ PAYLOAD=$(echo "$PROMPT" | node -e "
     folderPath: fp,
     message: msg,
     ephemeral: true,
-    model: 'gemini-3-flash-preview'
+    model: 'gemini-2.5-flash'
   }));
 " "$PROJECT_PATH")
 
 OUTPUT=""
+USED_MODEL=""
 attempts=0
 max_attempts=2
 while [ "$attempts" -lt "$max_attempts" ]; do
   RESPONSE=$(curl -s -X POST "$HUB_URL" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD")
-  OUTPUT=$(echo "$RESPONSE" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.response!=null?d.response:'')")
+  PARSED=$(echo "$RESPONSE" | node -e "
+    const fs = require('fs');
+    try {
+      const d = JSON.parse(fs.readFileSync(0, 'utf8'));
+      const model = d.usedModel != null ? String(d.usedModel) : '';
+      const response = d.response != null ? String(d.response) : '';
+      process.stdout.write(model + '\n' + response);
+    } catch {
+      process.stdout.write('\n');
+    }
+  ")
+  read -r USED_MODEL <<< "$PARSED"
+  OUTPUT=$(printf '%s\n' "$PARSED" | tail -n +2)
   if [[ -n "$OUTPUT" && "$OUTPUT" != "null" ]]; then
     break
   fi
@@ -112,10 +125,11 @@ if [[ -z "$OUTPUT" || "$OUTPUT" == "null" ]]; then
 fi
 
 # 8. Process the output with Node.js — extract <<<FILE:path>>> blocks and write to relative paths
-echo "$OUTPUT" | node -e "
+echo "$OUTPUT" | USED_MODEL="$USED_MODEL" node -e "
 const fs = require('fs');
 const path = require('path');
 const content = fs.readFileSync(0, 'utf8');
+const usedModel = process.env.USED_MODEL || 'unknown-model';
 const pattern = /<<<FILE:(.*?)>>>\s*([\s\S]*?)\s*<<<END_FILE>>>/g;
 let match;
 const matches = [];
@@ -160,7 +174,7 @@ for (const [relPath, newContent] of matches) {
     }
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, updatedContent);
-    console.log('✅ Updated', relPath);
+    console.log('✅ Updated ' + relPath + ' using ' + usedModel);
   } catch (e) {
     console.error('❌ Error updating', relPath, ':', e.message);
   }

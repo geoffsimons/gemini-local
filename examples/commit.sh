@@ -73,10 +73,13 @@ User Hint: ${hint_content}"
       console.log(JSON.stringify({
         folderPath: fp,
         message: msg,
-        ephemeral: true
+        ephemeral: true,
+        model: 'gemini-2.5-flash'
       }));
     " "$PROJECT_PATH")
 
+    local parsed
+    local usedModel
     local response
     local raw
     local attempts=0
@@ -85,9 +88,21 @@ User Hint: ${hint_content}"
       raw=$(curl -s -X POST "$HUB_URL" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD")
-      response=$(echo "$raw" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.response!=null?d.response:'')")
+      parsed=$(echo "$raw" | node -e "
+        const fs = require('fs');
+        try {
+          const d = JSON.parse(fs.readFileSync(0, 'utf8'));
+          const model = d.usedModel != null ? String(d.usedModel) : '';
+          const response = d.response != null ? String(d.response) : '';
+          process.stdout.write(model + '\n' + response);
+        } catch {
+          process.stdout.write('\n');
+        }
+      ")
+      read -r usedModel <<< "$parsed"
+      response=$(printf '%s\n' "$parsed" | tail -n +2)
       if [[ -n "$response" && "$response" != "null" ]]; then
-        echo "$response"
+        printf '%s\n%s\n' "$usedModel" "$response"
         return 0
       fi
       attempts=$((attempts + 1))
@@ -95,11 +110,13 @@ User Hint: ${hint_content}"
         sleep 1
       fi
     done
-    echo "$response"
+    printf '%s\n%s\n' "$usedModel" "$response"
 }
 
 echo "🤖 Generating commit message via Gemini Hub (Isolated Context)..."
-PROPOSED_MESSAGE="$(generate_commit_message "$HINT")"
+RAW_OUTPUT="$(generate_commit_message "$HINT")"
+read -r USED_MODEL <<< "$RAW_OUTPUT"
+PROPOSED_MESSAGE="$(printf '%s\n' "$RAW_OUTPUT" | tail -n +2)"
 
 if [[ -z "$PROPOSED_MESSAGE" || "$PROPOSED_MESSAGE" == "null" ]]; then
     echo "❌ Error: Failed to get a response from the Hub."
@@ -113,4 +130,6 @@ echo "-------------------------------"
 echo ""
 
 git commit -m "$PROPOSED_MESSAGE"
-exit $?
+COMMIT_EXIT_CODE=$?
+echo "✅ Model: $USED_MODEL"
+exit "$COMMIT_EXIT_CODE"
