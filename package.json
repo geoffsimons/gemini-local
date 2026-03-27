@@ -31,6 +31,7 @@
     "build": "next build",
     "start": "next start -p 2999",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
     "test:integration": "npx tsx tests/integration.test.ts",
     "test:smoke": "./scripts/smoke-test.sh"
   },
