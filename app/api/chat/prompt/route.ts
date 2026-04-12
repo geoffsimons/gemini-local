@@ -25,6 +25,8 @@ interface ImagePayload {
 // Build the multimodal parts array (ported from legacy /chat handler)
 // ---------------------------------------------------------------------------
 
+const SYSTEM_NATIVE_INSTRUCTIONS = 'CRITICAL INSTRUCTION: You possess native multi-modal vision capabilities. DO NOT attempt to use any CLI tools (like web_fetch or grep) to analyze this image. Directly interpret the pixels of the attached image array yourself and provide the analysis.';
+
 function buildPromptParts(
   message: string | undefined,
   images: ImagePayload[] | undefined,
@@ -36,12 +38,12 @@ function buildPromptParts(
 
   if (hasImages && images.length > 1 && compositeBase64) {
     // Multiple images – stitched composite
-    finalMessage += `\n\n[System: User has attached a base64 encoded image that is a composite of ${images.length} images stitched horizontally. Treat them as separate visual contexts ordered left-to-right.]`;
+    finalMessage += `\n\n[System: User has attached a base64 encoded image that is a composite of ${images.length} images stitched horizontally. Treat them as separate visual contexts ordered left-to-right. ${SYSTEM_NATIVE_INSTRUCTIONS}]`;
     parts.push({ text: finalMessage });
     parts.push({ inlineData: { mimeType: 'image/png', data: compositeBase64 } });
   } else if (hasImages && images.length === 1) {
     // Single image – pass-through
-    finalMessage += '\n\n[System: User has attached a base64 encoded image for analysis.]';
+    finalMessage += `\n\n[System: User has attached a base64 encoded image for analysis. ${SYSTEM_NATIVE_INSTRUCTIONS}]`;
     parts.push({ text: finalMessage });
     parts.push({
       inlineData: {
