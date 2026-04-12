@@ -300,7 +300,9 @@ class ClientRegistry {
     const registryKey = `${normalizedPath}:${sessionId}`;
     let session = this.sessions.get(registryKey);
 
-    log.info('Session', { session });
+    // This log line is kind of noisy. Leaving it here in case we ever need it, but even on
+    // debug it can be kind of annoying.
+    // log.info('Session', { session });
 
     // If session is not using the requested model, we need to switch it
     if (session && model && session.client.currentModel !== model) {

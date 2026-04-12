@@ -9,6 +9,9 @@ import path from "path";
 
 const logger = createLogger('Hub/API/Chat');
 
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -87,9 +90,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Folder not trusted' }, { status: 403 });
     }
 
-    logger.info('Prompt received', { folder: resolvedPath, sessionId, ephemeral });
+    logger.info('Prompt received', { folder: resolvedPath, sessionId, ephemeral, streamRequest });
 
     const session = await registry.getSession(resolvedPath, sessionId, model);
+
+    logger.info('YOLO mode', { yoloMode: session.yoloMode });
 
     // Streaming guard: request path must match the session's authorized path (when set)
     const sessionPath = session.folderPath ?? resolvedPath;
