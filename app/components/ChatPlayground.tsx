@@ -1,6 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from "react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import {
   Send,
   ImagePlus,
@@ -604,6 +613,81 @@ export default function ChatPlayground({
 // Sub-component: Message bubble
 // ---------------------------------------------------------------------------
 
+const assistantMarkdownComponents = {
+  p: ({ children }: { children?: ReactNode }) => (
+    <p className="mb-2 text-text-primary last:mb-0">{children}</p>
+  ),
+  ul: ({ children }: { children?: ReactNode }) => (
+    <ul className="mb-2 list-disc pl-4 text-text-primary last:mb-0">{children}</ul>
+  ),
+  ol: ({ children }: { children?: ReactNode }) => (
+    <ol className="mb-2 list-decimal pl-4 text-text-primary last:mb-0">{children}</ol>
+  ),
+  li: ({ children }: { children?: ReactNode }) => (
+    <li className="mb-0.5">{children}</li>
+  ),
+  a: ({
+    href,
+    children,
+  }: {
+    href?: string;
+    children?: ReactNode;
+  }) => (
+    <a
+      href={href}
+      className="text-accent underline hover:text-accent-hover"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {children}
+    </a>
+  ),
+  code: ({
+    className,
+    children,
+    ...props
+  }: ComponentPropsWithoutRef<"code">) => {
+    const isBlock = Boolean(className?.includes("language-"));
+    if (isBlock) {
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code
+        className="rounded bg-surface-3 px-1 py-0.5 font-mono text-[11px] text-text-primary"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }: { children?: ReactNode }) => (
+    <pre className="mb-2 overflow-x-auto rounded bg-surface-3 p-2 font-mono text-[11px] text-text-primary last:mb-0">
+      {children}
+    </pre>
+  ),
+  h1: ({ children }: { children?: ReactNode }) => (
+    <h1 className="mb-2 text-base font-semibold text-text-primary">{children}</h1>
+  ),
+  h2: ({ children }: { children?: ReactNode }) => (
+    <h2 className="mb-2 text-sm font-semibold text-text-primary">{children}</h2>
+  ),
+  h3: ({ children }: { children?: ReactNode }) => (
+    <h3 className="mb-1.5 text-xs font-semibold text-text-primary">{children}</h3>
+  ),
+  blockquote: ({ children }: { children?: ReactNode }) => (
+    <blockquote className="mb-2 border-l-2 border-border pl-2 text-text-secondary last:mb-0">
+      {children}
+    </blockquote>
+  ),
+  strong: ({ children }: { children?: ReactNode }) => (
+    <strong className="font-semibold text-text-primary">{children}</strong>
+  ),
+};
+
 function MessageBubble({
   message,
   onRetry,
@@ -644,7 +728,6 @@ function MessageBubble({
               : "bg-surface-2 text-text-primary"
           }`}
         >
-          {/* Thought process (collapsible) — only when message.thought exists */}
           {!isUser && message.thought != null && message.thought.trim() !== "" && (
             <details className="mb-3">
               <summary className="cursor-pointer list-none font-mono text-xs text-text-muted before:inline-block before:mr-1 before:content-[''] [&::-webkit-details-marker]:hidden">
@@ -656,26 +739,38 @@ function MessageBubble({
             </details>
           )}
 
-          {/* Main content — strictly outside and below the details */}
-          {message.images && message.images.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {message.images.map((src, i) => (
-                <img
-                  key={i}
-                  src={src}
-                  alt={`attached ${i + 1}`}
-                  className="h-16 w-16 rounded border border-border object-cover"
-                />
-              ))}
+          <div className="assistant-message-body">
+            {message.images && message.images.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {message.images.map((src, i) => (
+                  <img
+                    key={i}
+                    src={src}
+                    alt={`attached ${i + 1}`}
+                    className="h-16 w-16 rounded border border-border object-cover"
+                  />
+                ))}
+              </div>
+            )}
+
+            {isUser ? (
+              <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                {message.text}
+              </div>
+            ) : (
+              <div className="text-xs leading-relaxed text-text-primary">
+                <ReactMarkdown
+                  remarkPlugins={[remarkBreaks]}
+                  components={assistantMarkdownComponents}
+                >
+                  {message.text}
+                </ReactMarkdown>
+              </div>
+            )}
+
+            <div className="mt-1.5 text-right font-mono text-[9px] text-text-muted">
+              {new Date(message.timestamp).toLocaleTimeString()}
             </div>
-          )}
-
-          <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-            {message.text}
-          </div>
-
-          <div className="mt-1.5 text-right font-mono text-[9px] text-text-muted">
-            {new Date(message.timestamp).toLocaleTimeString()}
           </div>
         </div>
 

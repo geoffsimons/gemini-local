@@ -115,6 +115,7 @@ function* serverEventToJsonStreamEvents(
     }
     case GeminiEventType.Finished: {
       const e = event as { value: { usageMetadata?: { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number } } };
+      log.debug('FINISHED event', { value: JSON.stringify(event.value) });
       const um = e.value?.usageMetadata;
       yield {
         type: JsonStreamEventType.RESULT,

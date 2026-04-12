@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
           });
 
           try {
-            outer: while (true) {
+            while (true) {
               const collectedTools: Array<{ tool_name: string; parameters: Record<string, unknown>; tool_id: string }> = [];
               let sawResult = false;
               let resultStats: unknown = undefined;
