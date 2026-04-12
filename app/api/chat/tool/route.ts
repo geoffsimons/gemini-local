@@ -4,6 +4,7 @@ import { isFolderTrusted } from "@/lib/folders";
 import { createLogger } from "@/lib/logger";
 import { executeTool } from "@/lib/tools";
 import { JsonStreamEventType, convertToFunctionResponse } from "@google/gemini-cli-core";
+import type { PartListUnion } from "@google/genai";
 import path from "path";
 
 const logger = createLogger('Hub/API/ChatTool');
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
       const args = (tc.args && typeof tc.args === "object")
         ? (tc.args as Record<string, unknown>)
         : {};
-      let output: string | unknown;
+      let output: string | PartListUnion;
       try {
         output = await executeTool(session, tc.name, args, Boolean(approved));
       } catch (err) {
