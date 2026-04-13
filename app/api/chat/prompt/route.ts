@@ -68,7 +68,7 @@ function buildPromptParts(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { folderPath, sessionId, message, model, images, ephemeral, stream: streamRequest } = body as {
+    const { folderPath, sessionId, message, model, images, ephemeral, stream: streamRequest, yoloMode: yoloOverride } = body as {
       folderPath: string;
       sessionId?: string;
       message?: string;
@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       images?: ImagePayload[];
       ephemeral?: boolean;
       stream?: boolean;
+      yoloMode?: boolean;
     };
 
     if (!folderPath) {
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
 
     const session = await registry.getSession(resolvedPath, sessionId, model);
 
-    logger.info('YOLO mode', { yoloMode: session.yoloMode });
+    logger.info('YOLO mode', { yoloMode: session.yoloMode, yoloOverride });
 
     // Streaming guard: request path must match the session's authorized path (when set)
     const sessionPath = session.folderPath ?? resolvedPath;
@@ -243,7 +244,7 @@ export async function POST(req: NextRequest) {
                 break;
               }
 
-              if (!session.yoloMode) {
+              if (!session.yoloMode && !yoloOverride) {
                 logger.info("Pausing stream for tool approval", { count: collectedTools.length });
                 const manualModelParts: any[] = [];
                 if (bufferedResponseText.trim()) {
@@ -255,14 +256,6 @@ export async function POST(req: NextRequest) {
                   })),
                 );
                 session.history.push({ role: 'model', parts: manualModelParts } as any);
-                for (const t of collectedTools) {
-                  sendEvent({
-                    type: 'TOOL_USE',
-                    tool_name: t.tool_name,
-                    parameters: t.parameters,
-                    tool_id: t.tool_id,
-                  });
-                }
                 sendEvent({ type: 'RESULT', stats: resultStats });
                 return;
               }
@@ -347,7 +340,7 @@ export async function POST(req: NextRequest) {
 
         for await (const event of stream) {
           if (event.type === JsonStreamEventType.TOOL_USE) {
-            if (!session.yoloMode) {
+            if (!session.yoloMode && !yoloOverride) {
               rollbackUserTurn();
               return NextResponse.json(
                 { error: 'Tool approval required', code: 'TOOL_APPROVAL_REQUIRED', hint: 'Use streaming (stream: true or Accept: text/event-stream) for tool flows.' },
