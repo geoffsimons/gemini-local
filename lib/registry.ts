@@ -16,7 +16,7 @@ import { isFolderTrusted } from "./folders";
 
 const log = createLogger('Hub/Registry');
 
-const DEFAULT_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || "gemini-3-flash-preview";
+const DEFAULT_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || "gemini-2.5-flash";
 
 /**
  * One turn in the Hub-owned conversation history (user or model).

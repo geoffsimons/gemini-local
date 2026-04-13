@@ -279,6 +279,15 @@ export async function POST(req: NextRequest) {
               );
               session.history.push({ role: 'model', parts: modelParts } as any);
 
+              for (const t of collectedTools) {
+                sendEvent({
+                  type: 'TOOL_USE',
+                  tool_name: t.tool_name,
+                  parameters: t.parameters,
+                  tool_id: t.tool_id,
+                });
+              }
+
               const responseParts: any[] = [];
               for (const t of collectedTools) {
                 const output = await executeTool(

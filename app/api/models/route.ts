@@ -7,8 +7,8 @@ import { createLogger } from "@/lib/logger";
 const log = createLogger('Hub/API/Models');
 
 const VALID_GEMINI_MODELS: string[] = [
-  "gemini-3-pro-preview",
-  "gemini-3-flash-preview",
+  "gemini-3.1-pro-preview",
+  "gemini-3.1-flash-preview",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
