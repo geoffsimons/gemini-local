@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
 import { isFolderTrusted } from "@/lib/folders";
@@ -8,9 +11,6 @@ import { JsonStreamEventType, convertToFunctionResponse } from "@google/gemini-c
 import path from "path";
 
 const logger = createLogger('Hub/API/Chat');
-
-export const maxDuration = 300;
-export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
 // Types

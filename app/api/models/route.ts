@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 import { NextResponse } from "next/server";
 // TODO: We need to find the correct way to query available models for the authenticated user's account.
 //       For now, we are hardcoding the list of models that are available.

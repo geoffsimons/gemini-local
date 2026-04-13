@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 import { NextRequest, NextResponse } from "next/server";
 import { setModelForSession } from "@/lib/registry";
 import { createLogger } from "@/lib/logger";

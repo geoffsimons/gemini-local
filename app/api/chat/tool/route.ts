@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 import { NextRequest, NextResponse } from "next/server";
 import { registry } from "@/lib/registry";
 import { isFolderTrusted } from "@/lib/folders";

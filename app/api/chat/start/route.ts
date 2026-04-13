@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 import { NextRequest, NextResponse } from "next/server";
 import { existsSync } from "node:fs";
 import { registry, DEFAULT_GEMINI_MODEL } from "@/lib/registry";
