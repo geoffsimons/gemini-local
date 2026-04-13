@@ -94,7 +94,8 @@ ${EXISTING_CONTENT}
 STRICT RULES:
 1. COMPARE the Git History against the Existing Content.
 2. DO NOT generate entries for changes that are already logged.
-3. ${DECISION_INSTRUCTIONS}
+3. DO NOT output the top-level file headers (e.g., "# Changelog" or "All notable changes..."). Output ONLY the new specific entries starting with "## ".
+4. ${DECISION_INSTRUCTIONS}
 
 OUTPUT FORMAT:
 For each file that needs updating, output a block with the EXACT relative path as shown above:

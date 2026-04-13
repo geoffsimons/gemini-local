@@ -59,3 +59,23 @@
 - **Context:** Previous integration scripts relied on `jq` for JSON manipulation (as per ADR-005), which introduced a system-level dependency that is not consistently available across all developer environments.
 - **Decision:** Replace `jq` with Node.js scripts for all JSON processing and data manipulation within internal utilities, scripts, and examples.
 - **Consequences:** Eliminates the `jq` dependency; ensures more robust and maintainable JSON handling using the project's primary runtime; simplifies the developer environment setup by consolidating tools.
+
+# ADR-011: Standardize Scripting Toolchain to Node.js and Bash
+
+## Status
+Accepted
+
+## Context
+Historically, various scripting languages and tools have been used across the project, leading to inconsistencies, increased maintenance overhead, and reliance on external dependencies like `jq`. This has made it challenging to onboard new developers and ensure consistent script execution environments.
+
+## Decision
+To improve consistency, reliability, and reduce external dependencies, the project will standardize its scripting toolchain primarily on Bash and Node.js.
+*   **Node.js for JSON processing:** Tools like `jq` will be replaced with Node.js-based solutions for JSON manipulation.
+*   **Bash for shell scripting:** Complex shell scripts will continue to leverage Bash.
+*   **Documentation:** All new and updated scripts will adhere to this standard, and relevant project documentation (e.g., READMEs, contributing guidelines) will be updated to reflect this decision.
+
+## Consequences
+*   **Reduced external dependencies:** Eliminates the need for tools like `jq`, simplifying environment setup and reducing potential security vulnerabilities.
+*   **Improved maintainability:** A standardized approach makes scripts easier to understand, debug, and update for all contributors.
+*   **Consistent execution environment:** Ensures scripts run reliably across different developer environments and CI/CD pipelines.
+*   **Learning curve:** Developers unfamiliar with Node.js for scripting tasks may require a slight learning adjustment, but this is mitigated by the widespread adoption of Node.js in the JavaScript ecosystem.
