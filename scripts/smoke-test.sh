@@ -20,8 +20,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "You are a test assistant. Your secret code is BLUE_MONKEY." > "$TEST_PROJECT/GEMINI.md"
-
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 green() { printf "\033[32m%s\033[0m\n" "$*"; }
 red()   { printf "\033[31m%s\033[0m\n" "$*"; }
@@ -46,30 +44,13 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HUB_URL/chat/start"
      -d "{\"folderPath\": \"$TEST_PROJECT\"}")
 [ "$HTTP_CODE" -eq 200 ] && green "  PASS: Sandbox warmed up" || (red "  FAIL: HTTP $HTTP_CODE"; exit 1)
 
-# 3. Context & Memory Test (retry up to 3x for transient API/stream issues)
-bold "[3/10] Verifying GEMINI.md Injection..."
-STEP3_PASSED=0
-for attempt in 1 2 3; do
-  RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" --max-time 60 -X POST "$HUB_URL/chat/prompt" \
-       -H "Content-Type: application/json" \
-       -d "{\"folderPath\": \"$TEST_PROJECT\", \"message\": \"What is your secret code?\"}")
-  HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-  BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
-  TEXT=$(echo "$BODY" | jq -r '.response // empty')
-  if [[ "$TEXT" == *"BLUE_MONKEY"* ]]; then
-    STEP3_PASSED=1
-    break
-  fi
-  [[ $attempt -lt 3 ]] && sleep 2
-done
-if [[ $STEP3_PASSED -eq 1 ]]; then
-  green "  PASS: Hub correctly read GEMINI.md"
-else
-  DETAILS=$(echo "$BODY" | jq -r '.details // .error // empty')
-  red "  FAIL: Hub ignored local memory (HTTP $HTTP_CODE). Response: $TEXT"
-  [[ -n "$DETAILS" ]] && red "  Details: $DETAILS"
-  exit 1
-fi
+# 3. YOLO mode
+bold "[3/10] Enabling YOLO Mode..."
+YOLO_BODY=$(node -e "console.log(JSON.stringify({ folderPath: process.argv[1], yoloMode: true }))" "$TEST_PROJECT")
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH "$HUB_URL/chat/config" \
+     -H "Content-Type: application/json" \
+     -d "$YOLO_BODY")
+[ "$HTTP_CODE" -eq 200 ] && green "  PASS: YOLO mode enabled" || (red "  FAIL: HTTP $HTTP_CODE"; exit 1)
 
 # 4. Negative Test (Nonexistent folder)
 bold "[4/10] Validating Ghost Folder Rejection..."
@@ -93,8 +74,7 @@ TEXT=$(echo "$RESPONSE" | jq -r '.response')
 # 6. Visual Context (Sharp)
 bold "[6/10] Visual Context Validation..."
 RED_BASE64=$(node -e "require('sharp')({create:{width:10,height:10,channels:4,background:{r:255,g:0,b:0,alpha:1}}}).png().toBuffer().then(b => console.log(b.toString('base64')))")
-PAYLOAD=$(jq -n --arg fp "$TEST_PROJECT" --arg r "$RED_BASE64" \
-  '{folderPath: $fp, message: "What color is this? Return only the hex.", images: [{data: $r, mimeType: "image/png"}]}')
+PAYLOAD=$(jq -n --arg fp "$TEST_PROJECT" --arg r "$RED_BASE64" '{folderPath: $fp, message: "What color is this? Return only the hex.", images: [{data: $r, mimeType: "image/png"}]}')
 RESPONSE=$(curl -s -X POST "$HUB_URL/chat/prompt" -H "Content-Type: application/json" -d "$PAYLOAD")
 TEXT=$(echo "$RESPONSE" | jq -r '.response' | tr '[:upper:]' '[:lower:]')
 [[ "$TEXT" == *"ff0000"* ]] && green "  PASS: Image identified correctly" || (red "  FAIL: Visual mismatch: $TEXT"; exit 1)

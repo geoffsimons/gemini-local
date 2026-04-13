@@ -19,10 +19,10 @@ const TIMEOUT_MS: number = 30_000;
 
 const payload = {
   folderPath,
-  message: 'What is the secret code?',
+  // A trivial prompt so it answers instantly without triggering tools
+  message: 'Reply with exactly the word "STREAM_OK".',
   stream: true,
-  model: 'gemini-3-pro-preview',
-  // model: 'gemini-3.1-pro-preview',
+  model: 'gemini-2.5-flash', // Updated to match your current default
 };
 
 async function run(): Promise<void> {
