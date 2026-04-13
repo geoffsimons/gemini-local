@@ -1,40 +1,42 @@
 # Gemini Local Hub
 
-The Gemini Local Hub is a robust, local-first HTTP bridge and orchestration layer for the Google Gemini CLI. It transforms the stateless nature of LLM interactions into persistent, project-aware developer sessions, providing both a high-performance API and a modern chat interface.
+**Gemini Local Hub** is a **Next.js application** that fronts [`@google/gemini-cli-core`](https://www.npmjs.com/package/@google/gemini-cli-core)—the same engine as the Google Gemini CLI—and exposes it as a **local HTTP API** plus a chat UI.
 
-## Core Objective
+## Why run it locally?
 
-The Hub serves two primary purposes:
-1.  **API Layer:** Wraps `@google/gemini-cli-core` to provide a persistent, stateful HTTP interface that eliminates the "Invocation Penalty" (OAuth handshakes and model discovery) of standard CLI calls.
-2.  **UI Layer:** A modern, Next.js-based chat interface designed for complex multi-modal workflows and real-time agentic interactions.
+### Process warmth (fast automation)
 
-## Architectural Pillars
+Each plain `gemini` CLI invocation pays a **cold-start cost** (process boot, OAuth/session handling, model discovery). The Hub keeps **warm `GeminiClient` instances** in a process-wide registry keyed by trusted project directory, so follow-up requests from **bash scripts, editors, or other tools** avoid that boot tax. Pair this with **`POST /api/chat/start`** (or the `examples/connect.sh` helper) to warm a session before you fire prompts.
 
-### 1. Stateful "Warm" Sessions (ADR-001/002)
-By utilizing a **Global Singleton** pattern, the Hub maintains Gemini client instances in memory across requests. This preserves conversational history and local memory, reducing cold-start latency from seconds to milliseconds. Sessions are deterministically keyed to trusted project directories.
+### Free local multimodal API (via your CLI auth)
 
-### 2. Agentic Loop & Tool Execution (ADR-007)
-The Hub implements a sophisticated asynchronous streaming pipeline for multi-turn tool use.
-- **YOLO Mode:** Automated server-side execution via the native SDK `ToolRegistry`.
-- **Manual Approval:** Human-in-the-loop validation for sensitive tool calls.
-- **State Machine:** Handles complex sequences where the model requires multiple tool interactions to fulfill a single user request.
+Authentication follows the **Gemini CLI**: sign in with `gemini login` (or your existing CLI OAuth). The Hub does not ship its own API keys; it reuses the CLI core against your account. It also normalizes **multimodal** input: multiple images are **stitched server-side** into a single composite when required by the model/API constraints, with prompts adjusted so vision is used directly.
 
-### 3. Real-Time Thought Streaming
-Full transparency into the model's reasoning process. The UI renders real-time "thought blocks"—collapsible reasoning segments that allow developers to monitor the model's logic before it commits to an answer or tool execution.
+In short: **one long-lived local process**, **OAuth via the official CLI stack**, **HTTP in / multimodal out**—optimized for developers who want **repeatable, low-latency** local automation.
 
-### 4. Multimodal Normalization (ADR-003)
-The Hub circumvents API limitations by performing server-side image processing. Multiple images are stitched into high-fidelity composites using `sharp`, ensuring spatial context is preserved without sacrificing text readability or introducing artifacts.
+## What you get
 
-### 5. Trusted Workspace Governance (ADR-004)
-Security is enforced through a persistent registry. The Hub only interacts with "Trusted Folders" that have been physically validated on the local disk, preventing unauthorized filesystem access.
+| Capability | Summary |
+|------------|---------|
+| **Stateful sessions** | Conversation state and CLI session live across HTTP requests (singleton registry per trusted folder + optional `sessionId`). |
+| **Tool execution** | **YOLO mode** runs tools on the server and continues the agentic loop; otherwise the stream pauses for approval (UI or `POST /api/chat/tool`). |
+| **Ephemeral turns** | `ephemeral: true` clears history before a request—ideal for one-shot scripts (e.g. commit message generation) without polluting chat. |
+| **Streaming** | Long-lived responses emit **newline-delimited JSON** events (`Content-Type: application/x-ndjson`) when streaming is enabled. |
+| **Trust model** | Only **trusted** absolute `folderPath` values are accepted; manage trust via `/api/registry/*`. |
 
-## Tech Stack
+## Stack (high level)
 
-- **Framework:** Next.js (App Router)
-- **Styling:** Tailwind CSS (v4) with `clsx` and `tailwind-merge`
-- **Core Engine:** `@google/gemini-cli-core`
-- **Image Processing:** `sharp`
-- **Icons:** `lucide-react`
+- **Next.js** (App Router) — API routes under `app/api/**/route.ts` and the Hub UI.
+- **`@google/gemini-cli-core`** — model, tools, and streaming pipeline.
+- **`sharp`** — image stitching for multi-image prompts.
+
+For **install steps, endpoint reference, YOLO/ephemeral details, and script integration**, see **[USAGE.md](./USAGE.md)**.
+
+### Get the Code
+Scan the QR code below to view the repository:
+
+<img src="./github-qr.png" width="250" alt="GitHub Repository QR Code">
 
 ---
+
 MIT License | Built for high-speed, local-first AI development.
