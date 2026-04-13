@@ -35,7 +35,7 @@ For **install steps, endpoint reference, YOLO/ephemeral details, and script inte
 ### Get the Code
 Scan the QR code below to view the repository:
 
-<img src="./github-qr.png" width="250" alt="GitHub Repository QR Code">
+<img src="./github-qr.png" width="100%" alt="GitHub Repository QR Code">
 
 ---
 
