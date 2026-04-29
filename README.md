@@ -2,6 +2,8 @@
 
 **Gemini Local Hub** is a **Next.js application** that fronts [`@google/gemini-cli-core`](https://www.npmjs.com/package/@google/gemini-cli-core)—the same engine as the Google Gemini CLI—and exposes it as a **local HTTP API** plus a chat UI.
 
+⚠️ Important Notice regarding Google TOS (April 2026): Google has recently updated their enforcement regarding the use of the Gemini CLI OAuth session via third-party wrappers. To ensure compliance and avoid account throttling or suspension, the Gemini Local Hub should now be used with an official Gemini API Key from Google AI Studio. The core value of the Hub remains: providing local process warmth, stateful agentic loops, and YOLO-mode execution for your development workflows.
+
 ## Why run it locally?
 
 ### Process warmth (fast automation)
@@ -35,7 +37,7 @@ For **install steps, endpoint reference, YOLO/ephemeral details, and script inte
 ### Get the Code
 Scan the QR code below to view the repository:
 
-<img src="./github-qr.png" width="100%" alt="GitHub Repository QR Code">
+<img src="./github-qr.png" width="200px" alt="GitHub Repository QR Code">
 
 ---
 
